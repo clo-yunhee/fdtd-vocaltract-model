@@ -12,8 +12,13 @@ add_executable(${_target}
     image/image.hh
     image/make_cell_image.cc
     image/make_cell_image.hh
+    image/make_wave_image.cc
+    image/make_wave_image.hh
     image/save_to_png.cc
     image/save_to_png.hh
+    model/LF_precomputed_Rd_double.inc.h
+    model/LF.cpp
+    model/LF.h
     routines/area_function.cc
     routines/area_function.hh
     routines/boundary_interpolation.cc
@@ -44,19 +49,20 @@ add_executable(${_target}
 
 find_package(SndFile REQUIRED)
 find_package(PNG REQUIRED)
+find_package(Boost REQUIRED)
 
 target_link_libraries(${_target} PRIVATE
     Eigen3::Eigen
     SndFile::sndfile
     PNG::PNG
+    Boost::headers
+    colormap::colormap
 )
 
-if(CMAKE_BUILD_TYPE STREQUAL Debug)
-    target_compile_options(${_target} PRIVATE 
-        -fsanitize=address /Zi /Zo
-    )
-elseif(CMAKE_BUILD_TYPE STREQUAL RelWithDebInfo)
-    target_compile_options(${_target} PRIVATE
-        -fsanitize=address
-    )
-endif()
+#target_compile_options(${_target} PRIVATE 
+#    -fsanitize=address /Zi /Zo
+#)
+
+target_compile_options(${_target} PRIVATE 
+    /O2 /Ot
+)

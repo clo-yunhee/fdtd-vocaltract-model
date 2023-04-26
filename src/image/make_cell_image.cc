@@ -8,7 +8,7 @@ image::Image image::makeCellImage(const Tensor2<GridCellType>& frame) {
     const uint32_t frameWidth = frameSize[2];
     const uint32_t frameHeight = frameSize[1];
 
-    const uint32_t cellSize = 10;
+    const uint32_t cellSize = 7;
 
     const uint32_t width = frameWidth * cellSize;
     const uint32_t height = frameHeight * cellSize;
@@ -25,13 +25,22 @@ image::Image image::makeCellImage(const Tensor2<GridCellType>& frame) {
             const auto cellType = frame(fy + 1, fx + 1);
             switch (cellType) {
                 case cell_wall:
-                    rgba = 0xFFFF00FF;
+                    rgba = 0xFFD700FF;  // yellow-gold
                     break;
                 case cell_air:
-                    rgba = 0xFFFFFFFF;
+                    rgba = 0x00000000;  // transparent
+                    break;
+                case cell_excitation:
+                    rgba = 0xFF0000FF;  // red
+                    break;
+                case cell_dead:
+                    rgba = 0x000000FF;  // black
+                    break;
+                case cell_noPressure:
+                    rgba = 0x5A5A5AFF;  // dark gray
                     break;
                 default:
-                    rgba = 0x00FF00FF;
+                    rgba = 0xFF69B4FF;  // fuschia
                     break;
             }
 

@@ -2,7 +2,9 @@
 #include "audio/save_audio_file.hh"
 #include "constants.hh"
 #include "image/make_cell_image.hh"
+#include "image/make_wave_image.hh"
 #include "image/save_to_png.hh"
+#include "model/LF.h"
 #include "routines/circular_tube_generation.hh"
 #include "routines/elliptical_tube_generation.hh"
 #include "routines/impulse_signal.hh"
@@ -11,17 +13,20 @@ using namespace vt;
 
 void talkingTube() {
     const int              srateBase = 44100;
-    const uint32_t         srateMul = 10;  // Sample rate multiplier
-    const double           dur = 50e-3;    // simulation duration (50 ms)
+    const uint32_t         srateMul = 15;  // Sample rate multiplier
+    const double           dur = 1000e-3;  // simulation duration
     const SimulationType   simulationType = SimulationType::VowelSound;
-    const Vowel            vowel = Vowel::i;
-    const CrossSectionType crossSectionType = CrossSectionType::Elliptical;
+    const Vowel            vowel = Vowel::a;
+    const CrossSectionType crossSectionType = CrossSectionType::Circular;
     const JunctionType     junctionType = JunctionType::Centric;
-    const SourceType       sourceModelType = SourceType::Impulse;
+    const SourceType       sourceModelType = SourceType::GFM_LF;
+    const double           LF_Rd = 2.4;
     const bool             pmlSwitch = false;
     const bool             baffleSwitchFlag = false;
     const MouthTermination rad = MouthTermination::DirichletBoundary;
     const bool             boundaryInterpolation = false;
+    const bool             plotCells = true;
+    const bool             plotPressure = false;
 
     // DEFINE CONSTANTS
 
@@ -56,8 +61,23 @@ void talkingTube() {
 
     // DEFINE BETA AND SIGMAPRIME PARAMETERS
 
-    const uint32_t vis_Boundary = 2000;
-    auto           sigmadt = zeros<ArrayXd>(pmlLayer);
+    double vis_Min, vis_Max, vis_Boundary;
+
+    if (sourceModelType == SourceType::Impulse) {
+        vis_Min = -10000;
+        vis_Max = 40000;
+        vis_Boundary = 40000;
+    } else if (sourceModelType == SourceType::Sine) {
+        vis_Min = -4000;
+        vis_Max = 4000;
+        vis_Boundary = 4000;
+    } else if (sourceModelType == SourceType::GFM_LF) {
+        vis_Min = -2000;
+        vis_Max = 25000;
+        vis_Boundary = 25000;
+    }
+
+    auto sigmadt = zeros<ArrayXd>(pmlLayer);
 
     /*
      To store beta(tube wall) and sigmaPrimedt(PML Layers) [beta, sigmaPrimedt].
@@ -181,6 +201,20 @@ void talkingTube() {
             /* [airParam, vf_structuralParam, vf_flowParam, vf_matParam] =
                vf_SetVocalFoldParams(); */
         } break;
+        case SourceType::GFM_LF: {
+            // Glottal flow model - LF model
+
+            const double excitationF = 230;
+            const double srcAmplitude = 4000;
+
+            models::LF model;
+            model.setRd(LF_Rd);
+
+            for (uint32_t i = 1; i <= STEPS; ++i) {
+                excitationV(i) = srcAmplitude * model.evaluateAntiderivative(
+                                                    excitationF * dt * (i - 1));
+            }
+        } break;
         default:
             throw std::invalid_argument("unknown source model type");
     }
@@ -293,31 +327,37 @@ void talkingTube() {
 
     // MODEL VISUALISATION
 
-    // Visualize the PML layers and excitation cell by taking a slice of the
-    // domain
-    Tensor3<GridCellType> buildFrame =
-        simData.PV_N.chip(5, 3).cast<GridCellType>();
-    // Uncomment to visualise source position for the open space simulation
-    // buildFrame(midY, midX, midZ) = -1;
-    buildFrame(simData.listenerInfo.listenerY, simData.listenerInfo.listenerX,
-               simData.listenerInfo.listenerZ) = GridCellType::cell_head;
+    if (plotCells) {
+        // Visualize the PML layers and excitation cell by taking a slice of the
+        // domain
+        Tensor3<GridCellType> buildFrame =
+            simData.PV_N.chip(5, 3).cast<GridCellType>();
+        // Uncomment to visualise source position for the open space simulation
+        // buildFrame(midY, midX, midZ) = -1;
+        buildFrame(simData.listenerInfo.listenerY,
+                   simData.listenerInfo.listenerX,
+                   simData.listenerInfo.listenerZ) = GridCellType::cell_head;
 
-    // Slice along XZ-plane
-    const auto frame_xz = buildFrame.chip((uint32_t)std::ceil(frameY / 2.0), 0);
+        // Slice along XZ-plane
+        const auto frame_xz =
+            buildFrame.chip((uint32_t)std::ceil(frameY / 2.0), 0);
 
-    // Slice along YZ-plane
-    const auto frame_yz = buildFrame.chip((uint32_t)std::ceil(frameX / 2.0), 1);
+        // Slice along YZ-plane
+        const auto frame_yz =
+            buildFrame.chip((uint32_t)std::ceil(frameX / 2.0), 1);
 
-    // Slice along XY-plane
-    const auto frame_xy = buildFrame.chip((uint32_t)std::ceil(frameZ / 2.0), 2);
+        // Slice along XY-plane
+        const auto frame_xy =
+            buildFrame.chip((uint32_t)std::ceil(frameZ / 2.0), 2);
 
-    // Save images
-    const auto frame_xz_image = image::makeCellImage(frame_xz);
-    const auto frame_yz_image = image::makeCellImage(frame_yz);
-    const auto frame_xy_image = image::makeCellImage(frame_xy);
-    image::saveToPng("frame_xz.png", frame_xz_image);
-    image::saveToPng("frame_yz.png", frame_yz_image);
-    image::saveToPng("frame_xy.png", frame_xy_image);
+        // Save images
+        const auto frame_xz_image = image::makeCellImage(frame_xz);
+        const auto frame_yz_image = image::makeCellImage(frame_yz);
+        const auto frame_xy_image = image::makeCellImage(frame_xy);
+        image::saveToPng("images/frame_xz.png", frame_xz_image);
+        image::saveToPng("images/frame_yz.png", frame_yz_image);
+        image::saveToPng("images/frame_xy.png", frame_xy_image);
+    }
 
     // LOOK UP TABLE FOR BOUNDARY CONDITIONS
 
@@ -358,7 +398,7 @@ void talkingTube() {
 
     // To store is_excitation and excitation_weight
     const uint32_t numGridCellsForComputation = height * width * depth;
-    auto is_excitation = zeros<Array4X<bool>>(4, numGridCellsForComputation);
+    auto is_excitation = zeros<Array4X<double>>(4, numGridCellsForComputation);
     auto excitation_weight =
         zeros<Array3X<double>>(3, numGridCellsForComputation);
     auto N_out = zeros<ArrayX<double>>(numGridCellsForComputation);
@@ -384,17 +424,20 @@ void talkingTube() {
     auto excitation_Vy_weight = zeros<Tensor3<double>>(height, width, depth);
     auto excitation_Vz_weight = zeros<Tensor3<double>>(height, width, depth);
 
-    auto are_we_not_excitations_Vx = zeros<Tensor3<bool>>(height, width, depth);
-    auto are_we_not_excitations_Vy = zeros<Tensor3<bool>>(height, width, depth);
-    auto are_we_not_excitations_Vz = zeros<Tensor3<bool>>(height, width, depth);
+    auto are_we_not_excitations_Vx =
+        zeros<Tensor3<double>>(height, width, depth);
+    auto are_we_not_excitations_Vy =
+        zeros<Tensor3<double>>(height, width, depth);
+    auto are_we_not_excitations_Vz =
+        zeros<Tensor3<double>>(height, width, depth);
 
     // Store the xor_val in matrix format
-    auto xor_val1 = zeros<Tensor3<bool>>(height, width, depth);
-    auto xor_val2 = zeros<Tensor3<bool>>(height, width, depth);
-    auto xor_val3 = zeros<Tensor3<bool>>(height, width, depth);
-    auto xor_val4 = zeros<Tensor3<bool>>(height, width, depth);
-    auto xor_val5 = zeros<Tensor3<bool>>(height, width, depth);
-    auto xor_val6 = zeros<Tensor3<bool>>(height, width, depth);
+    auto xor_val1 = zeros<Tensor3<double>>(height, width, depth);
+    auto xor_val2 = zeros<Tensor3<double>>(height, width, depth);
+    auto xor_val3 = zeros<Tensor3<double>>(height, width, depth);
+    auto xor_val4 = zeros<Tensor3<double>>(height, width, depth);
+    auto xor_val5 = zeros<Tensor3<double>>(height, width, depth);
+    auto xor_val6 = zeros<Tensor3<double>>(height, width, depth);
 
     // Store the N_out and N_in in matrix format
     auto N_out_mat = zeros<Tensor3<double>>(height, width, depth);
@@ -480,22 +523,25 @@ void talkingTube() {
                 // Check whether the current cell is an excitation cell or not
                 for (uint32_t i = 1; i <= 4; ++i) {
                     is_excitation(i, counter) =
-                        (cellTypes(i) == (uint32_t)vt::cell_excitation);
+                        (double)(cellTypes(i) == (uint32_t)vt::cell_excitation);
                 }
 
                 // Verify if both the current cell and neighbouring cells are
                 // not excitation cells
                 are_we_not_excitations_Vx(height_idx - 1, width_idx - 1,
                                           depth_idx - 1) =
-                    (!is_excitation(1, counter) && !is_excitation(2, counter));
+                    (1 - is_excitation(1, counter)) *
+                    (1 - is_excitation(2, counter));
 
                 are_we_not_excitations_Vy(height_idx - 1, width_idx - 1,
                                           depth_idx - 1) =
-                    (!is_excitation(1, counter) && !is_excitation(3, counter));
+                    (1 - is_excitation(1, counter)) *
+                    (1 - is_excitation(3, counter));
 
                 are_we_not_excitations_Vz(height_idx - 1, width_idx - 1,
                                           depth_idx - 1) =
-                    (!is_excitation(1, counter) && !is_excitation(4, counter));
+                    (1 - is_excitation(1, counter)) *
+                    (1 - is_excitation(4, counter));
 
                 // Determine excitation weight for the current cell
                 // Find excitation velocity going out of the cell and coming
@@ -574,9 +620,9 @@ void talkingTube() {
         }
     }
 
-    const auto betaVxSqr = minVxBeta * minVxBeta;
-    const auto betaVySqr = minVyBeta * minVyBeta;
-    const auto betaVzSqr = minVzBeta * minVzBeta;
+    const auto betaVxSqr = minVxBeta.square();
+    const auto betaVySqr = minVyBeta.square();
+    const auto betaVzSqr = minVzBeta.square();
 
     const Tensor3<double> betaVxSqr_dt_invRho = (betaVxSqr * dt) / rho;
     const Tensor3<double> betaVySqr_dt_invRho = (betaVySqr * dt) / rho;
@@ -608,8 +654,8 @@ void talkingTube() {
     auto vb_alphaZ = zeros<Tensor3<double>>(frameY - 2, frameX - 2, frameZ - 2);
 
     // Introduce Dirichlet boundary condition
-    uint32_t      xNoPressure;
-    Tensor2<bool> isNoPressureCell;
+    uint32_t        xNoPressure;
+    Tensor2<double> isNoPressureCell;
 
     if (rad == MouthTermination::DirichletBoundary &&
         simulationType != SimulationType::OpenSpace) {
@@ -618,7 +664,8 @@ void talkingTube() {
         const auto gridNoPressurePlane =
             simData.PV_N.chip(5, 3).chip(xNoPressure, 1);
         isNoPressureCell =
-            (gridNoPressurePlane == GridCellType::cell_noPressure);
+            (gridNoPressurePlane == (double)GridCellType::cell_noPressure)
+                .cast<double>();
     }
 
     for (uint32_t T = 1; T <= STEPS; ++T) {
@@ -663,8 +710,7 @@ void talkingTube() {
             simulationType != SimulationType::OpenSpace) {
             /* PV_NPlus1(:, xNoPressure, :, 1) =
                     PV_NPlus1(:, xNoPressure, :, 1) .* isNoPressureCell; */
-            PV_NPlus1.chip(1, 3).chip(xNoPressure, 1) *=
-                isNoPressureCell.cast<double>();
+            PV_NPlus1.chip(1, 3).chip(xNoPressure, 1) *= isNoPressureCell;
         }
 
         // STEP3: Calculate Vx_next, Vy_next and Vz_next
@@ -675,7 +721,7 @@ void talkingTube() {
         for (uint32_t y = 1; y <= frameY - 2; ++y) {
             for (uint32_t x = 1; x <= frameX - 2; ++x) {
                 for (uint32_t z = 1; z <= frameZ - 2; ++z) {
-                    CxP(y, x, z) = (PV_NPlus1(y + 1, x + 2, z + 2, 1) -
+                    CxP(y, x, z) = (PV_NPlus1(y + 1, x + 2, z + 1, 1) -
                                     PV_NPlus1(y + 1, x + 1, z + 1, 1)) /
                                    dx;
 
@@ -850,7 +896,43 @@ void talkingTube() {
         simData.PV_N = PV_NPlus1;
 
         // Print remaining step numbers
-        if (T % 1000 == 0) {
+        if (T % 100 == 0) {
+            if (plotPressure) {
+                // Take slices to visualise the wave propagation
+
+                Tensor2<double> slice_xz = simData.PV_N.chip(1, 3).chip(
+                    (uint32_t)std::ceil(frameY / 2.0), 0);
+
+                double minPressure = DBL_MAX;
+                double maxPressure = -DBL_MAX;
+
+                for (uint32_t x = 1; x <= frameX; ++x) {
+                    for (uint32_t z = 1; z <= frameZ; ++z) {
+                        if (simData.PV_N(simData.tubeStart.startY, x, z, 5) ==
+                            GridCellType::cell_wall) {
+                            slice_xz(x, z) = vis_Boundary;
+                        }
+                        if (slice_xz(x, z) < minPressure) {
+                            minPressure = slice_xz(x, z);
+                        }
+                        if (slice_xz(x, z) > maxPressure) {
+                            maxPressure = slice_xz(x, z);
+                        }
+                    }
+                }
+
+                const auto slice_xz_image =
+                    image::makeWaveImage(slice_xz, vis_Min, vis_Max);
+
+                image::saveToPng(
+                    "images/slice_xz_" + std::to_string(T) + ".png",
+                    slice_xz_image);
+
+                fprintf(stderr, "Saved image of pressure at STEP = %d\n", T);
+                fprintf(stderr, "  => Min pressure = %f\n", minPressure);
+                fprintf(stderr, "  => Max pressure = %f\n", maxPressure);
+            }
+
             fprintf(stderr, "Remaining STEPS = %d\n", STEPS - T);
         }
 
@@ -898,9 +980,9 @@ void talkingTube() {
 
     const auto listenerAudio =
         audio::generateFromPressure(Pr_mouthEnd, srateBase, srate, srateMul);
-    audio::saveToWavFile("listener.wav", listenerAudio, srateBase);
+    audio::saveToWavFile("listener.wav", listenerAudio, srate);
 
     const auto sourceAudio =
-        audio::generateFromPressure(Pr_mouthEnd, srateBase, srate, srateMul);
-    audio::saveToWavFile("source.wav", sourceAudio, srateBase);
+        audio::generateFromPressure(Pr_glottalEnd, srateBase, srate, srateMul);
+    audio::saveToWavFile("source.wav", sourceAudio, srate);
 }

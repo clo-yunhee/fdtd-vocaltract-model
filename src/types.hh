@@ -40,6 +40,7 @@ enum class SourceType : uint32_t {
     Impulse,
     GaussianNoise,
     VFModel,
+    GFM_LF,
 };
 
 enum class MouthTermination : uint32_t {

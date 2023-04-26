@@ -8,6 +8,7 @@ void audio::saveToWavFile(const std::string&         path,
     int errnum;
 
     SF_INFO sfinfo;
+    memset(&sfinfo, 0, sizeof(sfinfo));
     sfinfo.samplerate = sampleRate;
     sfinfo.channels = 1;
     sfinfo.format = SF_FORMAT_WAV | SF_FORMAT_DOUBLE;

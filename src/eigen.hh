@@ -7,6 +7,7 @@
 using Eigen::indexing::all;
 using Eigen::indexing::last;
 using Eigen::indexing::lastN;
+using Eigen::indexing::lastp1;
 using Eigen::indexing::seq;
 using Eigen::indexing::seqN;
 
