@@ -47,9 +47,8 @@ add_executable(${_target}
     types.hh
 )
 
-find_package(SndFile REQUIRED)
-find_package(PNG REQUIRED)
-find_package(Boost REQUIRED)
+target_compile_features(${_target} PUBLIC cxx_std_20)
+set_target_properties(${_target} PROPERTIES CXX_EXTENSIONS OFF)
 
 target_link_libraries(${_target} PRIVATE
     Eigen3::Eigen
@@ -57,12 +56,4 @@ target_link_libraries(${_target} PRIVATE
     PNG::PNG
     Boost::headers
     colormap::colormap
-)
-
-#target_compile_options(${_target} PRIVATE 
-#    -fsanitize=address /Zi /Zo
-#)
-
-target_compile_options(${_target} PRIVATE 
-    /O2 /Ot
 )

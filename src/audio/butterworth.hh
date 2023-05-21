@@ -2,6 +2,7 @@
 #define AUDIO_BUTTERWORTH_H_
 
 #include <complex>
+#include <cstdint>
 
 #include "sos_filter.hh"
 

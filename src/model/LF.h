@@ -2,6 +2,7 @@
 #define SOURCEMODEL__MODELS_LF_H
 
 #include <array>
+#include <limits>
 #include <tuple>
 
 namespace models {

@@ -2,6 +2,8 @@
 
 #include <sndfile.h>
 
+#include <cstring>
+
 void audio::saveToWavFile(const std::string&         path,
                           const std::vector<double>& audio,
                           const int                  sampleRate) {
@@ -22,7 +24,7 @@ void audio::saveToWavFile(const std::string&         path,
     sf_count_t framesWritten =
         sf_writef_double(sndfile, audio.data(), audio.size());
     if (audio.size() != framesWritten) {
-        fprintf(stderr, "Sndfile didn't write all frames: %lld < %llu\n",
+        fprintf(stderr, "Sndfile didn't write all frames: %ld < %lu\n",
                 framesWritten, audio.size());
     }
 

@@ -903,8 +903,8 @@ void talkingTube() {
                 Tensor2<double> slice_xz = simData.PV_N.chip(1, 3).chip(
                     (uint32_t)std::ceil(frameY / 2.0), 0);
 
-                double minPressure = DBL_MAX;
-                double maxPressure = -DBL_MAX;
+                double minPressure = std::numeric_limits<double>::max();
+                double maxPressure = std::numeric_limits<double>::lowest();
 
                 for (uint32_t x = 1; x <= frameX; ++x) {
                     for (uint32_t z = 1; z <= frameZ; ++z) {

@@ -7,7 +7,7 @@ std::vector<double> audio::generateFromPressure(
     const double srate, const uint32_t srateMul) {
     std::vector<double> audioOutput(length(Pr_Audio));
 
-    double maxPressure = -DBL_MAX;
+    double maxPressure = std::numeric_limits<double>::lowest();
 
     for (uint32_t i = 0; i < audioOutput.size(); ++i) {
         audioOutput[i] = Pr_Audio(i + 1);
