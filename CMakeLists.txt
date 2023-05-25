@@ -58,6 +58,9 @@ find_package(PNG REQUIRED)
 # Boost library
 find_package(Boost REQUIRED)
 
+# LibTorch library
+find_package(Torch REQUIRED)
+
 # External libraries
 add_subdirectory(external)
 
