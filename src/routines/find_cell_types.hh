@@ -5,8 +5,7 @@
 
 namespace vt {
 
-ArrayXX<GridCellTypeInplane> findCellTypes(const Tensor4<double>& PV_N,
-                                           uint32_t               tubeX);
+array findCellTypes(const array& PV_N, uint32_t tubeX);
 
 }
 

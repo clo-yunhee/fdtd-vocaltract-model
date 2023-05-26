@@ -1,9 +1,11 @@
 #ifndef TYPES_HH_
 #define TYPES_HH_
 
+#include <arrayfire.h>
+
 #include <cstdint>
 
-#include "eigen.hh"
+using namespace af;
 
 namespace vt {
 
@@ -77,19 +79,28 @@ enum class GridCellTypeInplane : uint32_t {
     onVTContour,
 };
 
-struct TubeProperties {
-    ArrayXd sectionArea_incm2;
-    double  totalLength;
-    double  segmentLength;
+struct TubePropertiesStatic {
+    std::vector<double> sectionArea_incm2;
+    double              totalLength;
+    double              segmentLength;
 
-    TubeProperties(std::initializer_list<double> p_sectionArea_incm2,
-                   const double                  p_totalLength)
-        : sectionArea_incm2(p_sectionArea_incm2.size() + 1),
+    TubePropertiesStatic(std::initializer_list<double> p_sectionArea_incm2,
+                         const double                  p_totalLength)
+        : sectionArea_incm2(p_sectionArea_incm2),
           totalLength(p_totalLength),
-          segmentLength(p_totalLength / p_sectionArea_incm2.size()) {
-        std::copy(p_sectionArea_incm2.begin(), p_sectionArea_incm2.end(),
-                  std::next(sectionArea_incm2.begin()));
-    }
+          segmentLength(p_totalLength / p_sectionArea_incm2.size()) {}
+};
+
+struct TubeProperties {
+    af::array sectionArea_incm2;
+    double    totalLength;
+    double    segmentLength;
+
+    TubeProperties(const TubePropertiesStatic& s)
+        : sectionArea_incm2(s.sectionArea_incm2.size(),
+                            s.sectionArea_incm2.data()),
+          totalLength(s.totalLength),
+          segmentLength(s.segmentLength) {}
 };
 
 struct SimulationGridParams {
@@ -124,12 +135,12 @@ struct EndInfo {
 
 struct SimulationData {
     SimulationGridParams gridParams;
-    Tensor4<double>      PV_N;
+    array                PV_N;
     double               tubeStartArea;
     StartInfo            tubeStart;
     EndInfo              tubeEnd;
     uint32_t             totalTubeLengthInCells;
-    Array2X<uint32_t>    currTubeSectionDiameterCells_SegmentCounter;
+    array                currTubeSectionDiameterCells_SegmentCounter;
     ListenerInfo         listenerInfo;
     SourceInfo           sourceInfo;
 };

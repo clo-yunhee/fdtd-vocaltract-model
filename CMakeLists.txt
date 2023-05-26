@@ -58,8 +58,11 @@ find_package(PNG REQUIRED)
 # Boost library
 find_package(Boost REQUIRED)
 
-# LibTorch library
-find_package(Torch REQUIRED)
+find_package(CUDAToolkit 12.0 EXACT REQUIRED)
+set(CMAKE_CUDA_ARCHITECTURES all-major)
+
+# ArrayFire library
+find_package(ArrayFire REQUIRED)
 
 # External libraries
 add_subdirectory(external)

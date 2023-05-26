@@ -10,8 +10,6 @@ vt::SimulationData vt::ellipticalTubeGeneration(
     SimulationType simulationType, JunctionType junctionType, Vowel vowel,
     bool boundaryInterpolation, bool baffleSwitchFlag, bool pmlSwitch,
     uint32_t pmlLayer, MouthTermination rad, double ds) {
-    ArrayXX<GridCellTypeInplane> gridPlaneProp;
-
     // Define tube geometry
     TubeProperties tube = vt::areaFunction(simulationType, junctionType, vowel);
 
@@ -24,7 +22,7 @@ vt::SimulationData vt::ellipticalTubeGeneration(
         (uint32_t)std::round(micXdistanceFromMouthEnd / ds);
 
     // Number of tube segments
-    const uint32_t numSections = length(tubeSectionArea_inm2);
+    const uint32_t numSections = tubeSectionArea_inm2.elements();
 
     // Calculate tube cross-section semi-major and semi-minor axis length
     // The length of tube major and minor axis should be computed from the
@@ -35,8 +33,8 @@ vt::SimulationData vt::ellipticalTubeGeneration(
 
     bool isTubeGeometryDataExist = false;
 
-    ArrayXd majorAxisLen;
-    ArrayXd minorAxisLen;
+    array majorAxisLen;
+    array minorAxisLen;
 
     if (isTubeGeometryDataExist) {
         // TODO: We need vocal tract tube geometry / MRI images for this
@@ -52,52 +50,51 @@ vt::SimulationData vt::ellipticalTubeGeneration(
         // x = sqrt(ellipseArea/(semimajorAxisLen*semiminorAxisLen))
 
         auto lenX = sqrt(tubeSectionArea_inm2 /
-                         (semimajorAxisRatio * semiminorAxisRatio * pi));
+                         (semimajorAxisRatio * semiminorAxisRatio * Pi));
         majorAxisLen = lenX * (semimajorAxisRatio * 2);
         minorAxisLen = lenX * (semiminorAxisRatio * 2);
     }
 
-    ArrayX<uint32_t> tubeMajorAxisLenInCells =
-        round(majorAxisLen / ds).cast<uint32_t>();
-    ArrayX<uint32_t> tubeMinorAxisLenInCells =
-        round(minorAxisLen / ds).cast<uint32_t>();
+    array tubeMajorAxisLenInCells = round(majorAxisLen / ds).as(u32);
+    array tubeMinorAxisLenInCells = round(minorAxisLen / ds).as(u32);
 
     // Cross-sectional area at the tube start end
     // I didn't use "tubeSectionArea_inm2" directly because I wanted to use
     // the derived area by using the derived diameter.
     const double tubeStartArea =
-        pi * (majorAxisLen(1) / 2) * (minorAxisLen(1) / 2);
+        (Pi * (majorAxisLen(0) / 2) * (minorAxisLen(0) / 2)).scalar<double>();
 
     // Change the majorAxisLenInCells and minorAxisLenInCells to 1
     // if it contains 0
-    tubeMajorAxisLenInCells =
-        (tubeMajorAxisLenInCells == 0).select(1, tubeMajorAxisLenInCells);
-    tubeMinorAxisLenInCells =
-        (tubeMinorAxisLenInCells == 0).select(1, tubeMinorAxisLenInCells);
+    tubeMajorAxisLenInCells(tubeMajorAxisLenInCells == 0) = 1;
+    tubeMinorAxisLenInCells(tubeMinorAxisLenInCells == 0) = 1;
 
     // Choose the best possible odd number from the MinorAxisLenInCell
     // and tubeMajorAxisLenInCells array. In this model, the major axis goes
     // along the xz-plane.
-    for (uint32_t counter = 1; counter <= numSections; ++counter) {
+    for (uint32_t counter = 0; counter < numSections; ++counter) {
         // Verify if the tubeMajorAxisLenInCells is odd or not
-        if (tubeMajorAxisLenInCells(counter) % 2 == 0) {
+        if (allTrue<bool>(tubeMajorAxisLenInCells(counter) % 2 == 0)) {
             // Find the difference between the rounded and the actual
             // diameter value = Estimated diameter-Actual diameter
-            const double diff =
-                tubeMajorAxisLenInCells(counter) - (majorAxisLen(counter) / ds);
+            const double diff = (tubeMajorAxisLenInCells(counter) -
+                                 (majorAxisLen(counter) / ds))
+                                    .scalar<double>();
 
             if (diff > 0) {
-                tubeMajorAxisLenInCells(counter) -= 1;
+                tubeMajorAxisLenInCells(counter) =
+                    tubeMajorAxisLenInCells(counter) - 1;
             } else {
-                tubeMajorAxisLenInCells(counter) += 1;
+                tubeMajorAxisLenInCells(counter) =
+                    tubeMajorAxisLenInCells(counter) + 1;
             }
         }
     }
 
     // Store the ellipse semi-major axis and semi-minor axis diameter
-    auto ellipseAxisLenInfo = zeros<Array2X<uint32_t>>(2, numSections);
-    ellipseAxisLenInfo(1, all) = tubeMajorAxisLenInCells;
-    ellipseAxisLenInfo(2, all) = tubeMinorAxisLenInCells;
+    array ellipseAxisLenInfo = constant(0, 2, numSections, u32);
+    ellipseAxisLenInfo(0, span) = tubeMajorAxisLenInCells;
+    ellipseAxisLenInfo(1, span) = tubeMinorAxisLenInCells;
 
     // Find the total tube length and calculate the percentage error
     // in the approximated tube length
@@ -120,8 +117,10 @@ vt::SimulationData vt::ellipticalTubeGeneration(
         // along the y-axis.
         domainX = totalTubeLengthInCells +
                   (1 + 1);  // +1 is excitation and +1 is dirichlet layer
-        domainY = tubeMinorAxisLenInCells.maxCoeff() + 2;  // +2 is tube walls
-        domainZ = tubeMajorAxisLenInCells.maxCoeff() + 2;  // +2 is tube walls
+        domainY =
+            max<uint32_t>(tubeMinorAxisLenInCells) + 2;  // +2 is tube walls
+        domainZ =
+            max<uint32_t>(tubeMajorAxisLenInCells) + 2;  // +2 is tube walls
     }
 
     // Derive frame size
@@ -148,11 +147,11 @@ vt::SimulationData vt::ellipticalTubeGeneration(
     // PV_N(:,:,:, 3) = To store Vy
     // PV_N(:,:,:, 4) = To store Vz
     // PV_N(:,:,:, 5) = To store grid cell types
-    auto PV_N = zeros<Tensor4<double>>(frameY, frameX, frameZ, 5);
+    array PV_N = constant(0, frameY, frameX, frameZ, 5);
 
     // Define cell types and store it in PV_N(:,:,:, 5)
     // Declare all the cells as air by default
-    PV_N.chip(5, 3).setConstant(vt::cell_air);
+    PV_N(span, span, span, 4) = vt::cell_air;
 
     // Create the regular tube geometry
 
@@ -161,8 +160,8 @@ vt::SimulationData vt::ellipticalTubeGeneration(
     // from the starting position towards the end position.
 
     // Find the center of the tube along the yz-plane
-    const uint32_t centerY = (uint32_t)ceil(frameY / 2.0);
-    const uint32_t centerZ = (uint32_t)ceil(frameZ / 2.0);
+    const uint32_t centerY = (uint32_t)ceil((frameY - 1) / 2.0);
+    const uint32_t centerZ = (uint32_t)ceil((frameZ - 1) / 2.0);
 
     // Find the starting and ending point of the tube.
     // 1 is: for starting point, dead layer and excitation
@@ -185,13 +184,14 @@ vt::SimulationData vt::ellipticalTubeGeneration(
     tubeEnd.endZ = centerZ;
 
     // Store the cumulative length of each tube section
-    auto tubeCummSectionLength = zeros<ArrayXd>(numSections);
-    for (uint32_t sectionCount = 1; sectionCount <= numSections;
+    array tubeCummSectionLength = constant(0, 1, numSections);
+    for (uint32_t sectionCount = 0; sectionCount < numSections;
          ++sectionCount) {
-        tubeCummSectionLength(sectionCount) = tube.segmentLength * sectionCount;
+        tubeCummSectionLength(sectionCount) =
+            tube.segmentLength * (sectionCount + 1);
     }
 
-    Array2X<uint32_t> currTubeSectionDiameterCells_SegmentCounter;
+    array currTubeSectionDiameterCells_SegmentCounter;
     if (junctionType == JunctionType::Centric) {
         currTubeSectionDiameterCells_SegmentCounter =
             vt::centricEllipticalContourGeneration(
@@ -210,30 +210,15 @@ vt::SimulationData vt::ellipticalTubeGeneration(
     // This can be done by checking the midpoint along y-axis
     double   vtMidlineLength = 0;
     uint32_t prevMidYPosition = 0;
-    uint32_t minAirYInCells;
-    uint32_t maxAirYInCells;
 
     for (uint32_t vtCrossSectionCounter = tubeStart.startX;
          vtCrossSectionCounter <= tubeEnd.endX; ++vtCrossSectionCounter) {
-        gridPlaneProp = vt::findCellTypes(PV_N, vtCrossSectionCounter);
-
-        // Find mid Y position
-        minAirYInCells = UINT32_MAX;
-        maxAirYInCells = 0;
-
-        for (uint32_t y = 1; y <= rows(gridPlaneProp); ++y) {
-            if (gridPlaneProp(y, tubeStart.startZ) ==
-                GridCellTypeInplane::inVTContour) {
-                if (y < minAirYInCells) {
-                    minAirYInCells = y;
-                }
-                if (y > maxAirYInCells) {
-                    maxAirYInCells = y;
-                }
-            }
-        }
-
-        const uint32_t currMidYPosition = (minAirYInCells + maxAirYInCells) / 2;
+        const array gridPlaneProp =
+            vt::findCellTypes(PV_N, vtCrossSectionCounter);
+        const array    airCells = where(gridPlaneProp(span, tubeStart.startZ) ==
+                                        (float)GridCellTypeInplane::inVTContour);
+        const uint32_t currMidYPosition =
+            ((min(airCells) + max(airCells)) / 2).scalar<uint32_t>();
 
         if (vtCrossSectionCounter == tubeStart.startX) {
             prevMidYPosition = currMidYPosition;
@@ -245,7 +230,8 @@ vt::SimulationData vt::ellipticalTubeGeneration(
             prevMidYPosition = currMidYPosition;
         } else {
             const double yPosDifferenceLen =
-                fabs(currMidYPosition - prevMidYPosition) * ds;
+                std::abs((double)currMidYPosition - (double)prevMidYPosition) *
+                ds;
             vtMidlineLength +=
                 sqrt(ds * ds + yPosDifferenceLen * yPosDifferenceLen);
             prevMidYPosition = currMidYPosition;
@@ -264,20 +250,20 @@ vt::SimulationData vt::ellipticalTubeGeneration(
     // Check the grid cell types for the yz-plane that exists besides
     // (left-side) the tube starting point
     const uint32_t xExcitationPos = tubeStart.startX - 1;
-    gridPlaneProp = vt::findCellTypes(PV_N, tubeStart.startX);
+    const array    gridPlaneProp = vt::findCellTypes(PV_N, tubeStart.startX);
 
     // Find the grid size and traverse through yz-plane to assign
     // cell_excitation
-    const auto gridSize = dimensions(PV_N);
+    const dim4 gridSize = PV_N.dims();
 
-    for (uint32_t yCount = 1; yCount <= gridSize[1]; ++yCount) {
-        for (uint32_t zCount = 1; zCount <= gridSize[3]; ++zCount) {
-            if (gridPlaneProp(yCount, zCount) ==
-                GridCellTypeInplane::inVTContour) {
-                PV_N(yCount, xExcitationPos, zCount, 5) = vt::cell_excitation;
-            } else if (gridPlaneProp(yCount, zCount) ==
-                       GridCellTypeInplane::onVTContour) {
-                PV_N(yCount, xExcitationPos, zCount, 5) = vt::cell_wall;
+    for (uint32_t yCount = 0; yCount < gridSize[0]; ++yCount) {
+        for (uint32_t zCount = 0; zCount < gridSize[2]; ++zCount) {
+            if (allTrue<bool>(gridPlaneProp(yCount, zCount) ==
+                              (float)GridCellTypeInplane::inVTContour)) {
+                PV_N(yCount, xExcitationPos, zCount, 4) = vt::cell_excitation;
+            } else if (allTrue<bool>(gridPlaneProp(yCount, zCount) ==
+                                     (float)GridCellTypeInplane::onVTContour)) {
+                PV_N(yCount, xExcitationPos, zCount, 4) = vt::cell_wall;
             }
         }
     }
@@ -285,18 +271,19 @@ vt::SimulationData vt::ellipticalTubeGeneration(
     // Define no_Pressure cells [Dirichlet Boundary Condition]
     if (rad == MouthTermination::DirichletBoundary) {
         tubeEnd.endX = tubeStart.startX + totalTubeLengthInCells - 1;
-        gridPlaneProp = vt::findCellTypes(PV_N, tubeEnd.endX);
+        const array gridPlaneProp = vt::findCellTypes(PV_N, tubeEnd.endX);
 
         // Traverse through yz-plane to assign cell_noPressure
-        for (uint32_t yCount = 1; yCount <= gridSize[1]; ++yCount) {
-            for (uint32_t zCount = 1; zCount <= gridSize[3]; ++zCount) {
-                if (gridPlaneProp(yCount, zCount) ==
-                    GridCellTypeInplane::inVTContour) {
-                    PV_N(yCount, tubeEnd.endX + 1, zCount, 5) =
+        for (uint32_t yCount = 0; yCount < gridSize[0]; ++yCount) {
+            for (uint32_t zCount = 0; zCount < gridSize[2]; ++zCount) {
+                if (allTrue<bool>(gridPlaneProp(yCount, zCount) ==
+                                  (float)GridCellTypeInplane::inVTContour)) {
+                    PV_N(yCount, tubeEnd.endX + 1, zCount, 4) =
                         vt::cell_noPressure;
-                } else if (gridPlaneProp(yCount, zCount) ==
-                           GridCellTypeInplane::onVTContour) {
-                    PV_N(yCount, tubeEnd.endX + 1, zCount, 5) =
+                } else if (allTrue<bool>(
+                               gridPlaneProp(yCount, zCount) ==
+                               (float)GridCellTypeInplane::onVTContour)) {
+                    PV_N(yCount, tubeEnd.endX + 1, zCount, 4) =
                         vt::cell_noPressure;
                 }
             }
@@ -313,47 +300,31 @@ vt::SimulationData vt::ellipticalTubeGeneration(
 
     // Determine the microphone/listener position near the mouth-end
     ListenerInfo listenerInfo;
-    listenerInfo.listenerX = tubeEnd.endX - micXdistanceInCellsFromMouthEnd;
-    listenerInfo.listenerZ = tubeEnd.endZ;
-    gridPlaneProp = vt::findCellTypes(PV_N, listenerInfo.listenerX);
-
-    // Find mid Y position
-    minAirYInCells = UINT32_MAX;
-    maxAirYInCells = 0;
-    for (uint32_t y = 1; y <= rows(gridPlaneProp); ++y) {
-        if (gridPlaneProp(y, tubeEnd.endZ) ==
-            GridCellTypeInplane::inVTContour) {
-            if (y < minAirYInCells) {
-                minAirYInCells = y;
-            }
-            if (y > maxAirYInCells) {
-                maxAirYInCells = y;
-            }
-        }
+    {
+        listenerInfo.listenerX = tubeEnd.endX - micXdistanceInCellsFromMouthEnd;
+        listenerInfo.listenerZ = tubeEnd.endZ;
+        const array gridPlaneProp =
+            vt::findCellTypes(PV_N, listenerInfo.listenerX);
+        const array airCells =
+            where(gridPlaneProp(span, listenerInfo.listenerZ) ==
+                  (float)GridCellTypeInplane::inVTContour);
+        const uint32_t yPosition =
+            ((min(airCells) + max(airCells)) / 2).scalar<uint32_t>();
+        listenerInfo.listenerY = yPosition;
     }
-    listenerInfo.listenerY = (minAirYInCells + maxAirYInCells) / 2;
 
     // Determine the source position near the glottal-end
     SourceInfo sourceInfo;
-    sourceInfo.sourceX = tubeStart.startX + 1;
-    sourceInfo.sourceZ = tubeStart.startZ;
-    gridPlaneProp = vt::findCellTypes(PV_N, sourceInfo.sourceX);
-
-    // Find mid Y position
-    minAirYInCells = UINT32_MAX;
-    maxAirYInCells = 0;
-    for (uint32_t y = 1; y <= rows(gridPlaneProp); ++y) {
-        if (gridPlaneProp(y, tubeStart.startZ) ==
-            GridCellTypeInplane::inVTContour) {
-            if (y < minAirYInCells) {
-                minAirYInCells = y;
-            }
-            if (y > maxAirYInCells) {
-                maxAirYInCells = y;
-            }
-        }
+    {
+        sourceInfo.sourceX = tubeStart.startX + 1;
+        sourceInfo.sourceZ = tubeStart.startZ;
+        const array gridPlaneProp = vt::findCellTypes(PV_N, sourceInfo.sourceX);
+        const array airCells = where(gridPlaneProp(span, sourceInfo.sourceZ) ==
+                                     (float)GridCellTypeInplane::inVTContour);
+        const uint32_t yPosition =
+            ((min(airCells) + max(airCells)) / 2).scalar<uint32_t>();
+        sourceInfo.sourceY = yPosition;
     }
-    sourceInfo.sourceY = (minAirYInCells + maxAirYInCells) / 2;
 
     SimulationData data;
     data.gridParams = std::move(simGridParams);

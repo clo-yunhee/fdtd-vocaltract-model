@@ -5,7 +5,7 @@
 
 namespace vt {
 
-void tubeSegmentConnector(Tensor4<double>& PV_N, uint32_t prevGetRadius,
+void tubeSegmentConnector(array& PV_N, uint32_t prevGetRadius,
                           uint32_t currGetRadius, uint32_t tubeX);
 
 }

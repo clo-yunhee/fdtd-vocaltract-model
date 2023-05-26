@@ -1,3 +1,5 @@
+#include <af/util.h>
+
 #include "audio/generate_audio.hh"
 #include "audio/save_audio_file.hh"
 #include "constants.hh"
@@ -8,25 +10,26 @@
 #include "routines/circular_tube_generation.hh"
 #include "routines/elliptical_tube_generation.hh"
 #include "routines/impulse_signal.hh"
+#include "types.hh"
 
 using namespace vt;
 
 void talkingTube() {
     const int              srateBase = 44100;
-    const uint32_t         srateMul = 15;  // Sample rate multiplier
-    const double           dur = 1000e-3;  // simulation duration
+    const uint32_t         srateMul = 12;  // Sample rate multiplier
+    const double           dur = 50e-3;    // simulation duration
     const SimulationType   simulationType = SimulationType::VowelSound;
-    const Vowel            vowel = Vowel::a;
+    const Vowel            vowel = Vowel::I;
     const CrossSectionType crossSectionType = CrossSectionType::Circular;
     const JunctionType     junctionType = JunctionType::Centric;
     const SourceType       sourceModelType = SourceType::GFM_LF;
     const double           LF_Rd = 2.4;
-    const bool             pmlSwitch = false;
+    const bool             pmlSwitch = true;
     const bool             baffleSwitchFlag = false;
     const MouthTermination rad = MouthTermination::DirichletBoundary;
     const bool             boundaryInterpolation = false;
     const bool             plotCells = true;
-    const bool             plotPressure = false;
+    const bool             plotPressure = true;
 
     // DEFINE CONSTANTS
 
@@ -46,18 +49,16 @@ void talkingTube() {
     const double rhoC = rho * c;
 
     // SIMULATION TIME
-
     std::vector<double> times;
     uint32_t            timeIndex = 0;
     double              curTime = 0;
     while (curTime < AudioTime - dt) {
         times.push_back(curTime);
-        curTime = timeIndex * dt;
         timeIndex++;
+        curTime = timeIndex * dt;
     }
     const uint32_t STEPS = times.size();
-    auto           t = zeros<ArrayXd>(STEPS);
-    std::copy(times.begin(), times.end(), std::next(t.begin()));
+    array          t(1, STEPS, times.data());
 
     // DEFINE BETA AND SIGMAPRIME PARAMETERS
 
@@ -77,7 +78,7 @@ void talkingTube() {
         vis_Boundary = 25000;
     }
 
-    auto sigmadt = zeros<ArrayXd>(pmlLayer);
+    array sigmadt = constant(0, pmlLayer);
 
     /*
      To store beta(tube wall) and sigmaPrimedt(PML Layers) [beta, sigmaPrimedt].
@@ -92,29 +93,33 @@ void talkingTube() {
      HEAD CELLS -> beta = 0, sigma_prima*dt = (1-0)*dt = 1*dt = dt
      NOTE - We are considering excitation cells/head cells as special wall cells
     */
-    auto typeValues = zeros<Array2Xd>(2, vt::cell_numTypes);
-    typeValues(seq(1, 2), vt::cell_wall + 1) << 0, dt;        // VT walls
-    typeValues(seq(1, 2), vt::cell_air + 1) << 1, 0;          // air
-    typeValues(seq(1, 2), vt::cell_noPressure + 1) << 1, 0;   // air
-    typeValues(seq(1, 2), vt::cell_excitation + 1) << 0, dt;  // excitation
-    typeValues(seq(1, 2), vt::cell_head + 1) << 0, dt;        // head cells
+    array typeValues = constant(0, 2, vt::cell_numTypes);
+    typeValues(span, vt::cell_wall) = array(dim4(2, 1), {0., dt});  // VT walls
+    typeValues(span, vt::cell_air) = array(dim4(2, 1), {1, 0});     // air
+    typeValues(span, vt::cell_noPressure) = array(dim4(2, 1), {1, 0});  // air
+    typeValues(span, vt::cell_excitation) =
+        array(dim4(2, 1), {0., dt});  // excitation
+    typeValues(span, vt::cell_head) =
+        array(dim4(2, 1), {0., dt});  // head cells
 
     // Define beta and sigmaPrimedt for PML layers
     // For PML layers beta = 1,
     // sigmaPrimedt = [1-beta+sigma]*dt = [1-1+sigma]*dt = sigmadt
     for (uint32_t pmlCounter = 0; pmlCounter <= pmlLayer - 1; ++pmlCounter) {
-        sigmadt(pmlCounter + 1) = (pmlCounter / (pmlLayer - 1)) * maxSigmadt;
-        typeValues(seq(1, 2), vt::cell_pml0 + 1 + pmlCounter) << 1,
-            sigmadt(pmlCounter + 1);
+        sigmadt(pmlCounter) =
+            ((double)pmlCounter / (pmlLayer - 1)) * maxSigmadt;
+        typeValues(span, vt::cell_pml0 + pmlCounter) = array(
+            dim4(2, 1), {1., (double)sigmadt(pmlCounter).scalar<float>()});
     }
-    typeValues(seq(1, 2), vt::cell_dead + 1) << 0, 1000000;
+    typeValues(span, vt::cell_dead) = array(dim4(2, 1), {0, 1000000});
 
     // DEFINE SIMULATION TYPE
 
     // [Note]: I have created two separate functions for the circular and
-    // elliptical tube generation. However, that's not required since circle is
-    // a special case of ellipse where the ratio between the semiMajorAxis and
-    // semiMinorAxis is equal. [semiMajorAxis:semiMinorAxis = 1:1]
+    // elliptical tube generation. However, that's not required since circle
+    // is a special case of ellipse where the ratio between the
+    // semiMajorAxis and semiMinorAxis is equal.
+    // [semiMajorAxis:semiMinorAxis = 1:1]
 
     SimulationData simData;
 
@@ -155,8 +160,8 @@ void talkingTube() {
 
     // VARIABLES TO SAVE PRESSURE AT MOUTH_END AND GLOTTAL_END
 
-    auto Pr_mouthEnd = zeros<ArrayXd>(STEPS);
-    auto Pr_glottalEnd = zeros<ArrayXd>(STEPS);
+    array Pr_mouthEnd = constant(0, 1, STEPS);
+    array Pr_glottalEnd = constant(0, 1, STEPS);
 
     // DETERMINE WALL IMPEDANCE
 
@@ -168,16 +173,16 @@ void talkingTube() {
 
     // SOURCE MODEL
 
-    auto excitationV = zeros<ArrayXd>(STEPS);
+    array excitationV = constant(0, 1, STEPS);
 
     switch (sourceModelType) {
         case SourceType::Sine: {
             // Sine wave source model
             const double excitationF = 440;  // 440 Hz
             const double srcAmplitude = 25;
-            for (uint32_t i = 1; i <= STEPS; ++i) {
+            for (uint32_t i = 0; i < STEPS; ++i) {
                 excitationV(i) =
-                    srcAmplitude * sin(2 * pi * excitationF * dt * (i - 1));
+                    srcAmplitude * sin(2 * Pi * excitationF * dt * i);
             }
         } break;
         case SourceType::Gaussian: {
@@ -210,9 +215,9 @@ void talkingTube() {
             models::LF model;
             model.setRd(LF_Rd);
 
-            for (uint32_t i = 1; i <= STEPS; ++i) {
+            for (uint32_t i = 0; i < STEPS; ++i) {
                 excitationV(i) = srcAmplitude * model.evaluateAntiderivative(
-                                                    excitationF * dt * (i - 1));
+                                                    excitationF * dt * i);
             }
         } break;
         default:
@@ -226,9 +231,8 @@ void talkingTube() {
     //                     4 = Right =  1
     //                     5 = Up    =  1
     //                     6 = Front =  1
-    auto srcDirection = zeros<ArrayXd>(6);
-    // For forward direction
-    srcDirection(4) = 1;
+    array srcDirection =
+        array(dim4(6), {0, 0, 0, 1, 0, 0});  // For forward direction
 
     // SOURCE AND VIRTUAL MIC
 
@@ -246,82 +250,66 @@ void talkingTube() {
     // Define cell_dead to the outer-most layer of the frame
 
     // ---Adding dead cells to the top and bottom surfaces---
-    for (uint32_t x = 1; x <= frameX; ++x) {
-        for (uint32_t z = 1; z <= frameZ; ++z) {
-            simData.PV_N(1, x, z, 5) = vt::cell_dead;
-            simData.PV_N(frameY, x, z, 5) = vt::cell_dead;
-        }
-    }
+    simData.PV_N(0, seq(0, frameX - 1), seq(0, frameZ - 1), 4) = vt::cell_dead;
+    simData.PV_N(frameY - 1, seq(0, frameX - 1), seq(0, frameZ - 1), 4) =
+        vt::cell_dead;
 
     // ---Adding dead cells to the back and front surfaces---
-    for (uint32_t y = 1; y <= frameY; ++y) {
-        for (uint32_t x = 1; x <= frameX; ++x) {
-            simData.PV_N(y, x, 1, 5) = vt::cell_dead;
-            simData.PV_N(y, x, frameZ, 5) = vt::cell_dead;
-        }
-    }
+    simData.PV_N(seq(0, frameY - 1), seq(0, frameX - 1), 0, 4) = vt::cell_dead;
+    simData.PV_N(seq(0, frameY - 1), seq(0, frameX - 1), frameZ - 1, 4) =
+        vt::cell_dead;
 
     // ---Adding dead cells to the left and right surfaces---
-    for (uint32_t y = 1; y <= frameY; ++y) {
-        for (uint32_t z = 1; z <= frameZ; ++z) {
-            simData.PV_N(y, 1, z, 5) = vt::cell_dead;
-            simData.PV_N(y, frameX, z, 5) = vt::cell_dead;
-        }
-    }
+    simData.PV_N(seq(0, frameY - 1), 0, seq(0, frameZ - 1), 4) = vt::cell_dead;
+    simData.PV_N(seq(0, frameY - 1), frameX - 1, seq(0, frameZ - 1), 4) =
+        vt::cell_dead;
 
     if (pmlSwitch) {
         // Define PML layers starting from the outer-most layer
         uint32_t pmlType = (uint32_t)vt::cell_pml5;
 
         const uint32_t xShift = 1;
-        uint32_t       xStart = 2;
-        uint32_t       xEnd = frameX - 1;
+        uint32_t       xStart = 1;
+        uint32_t       xEnd = frameX - 2;
 
         const uint32_t yShift = 1;
-        uint32_t       yStart = 2;
-        uint32_t       yEnd = frameY - 1;
+        uint32_t       yStart = 1;
+        uint32_t       yEnd = frameY - 2;
 
         const uint32_t zShift = 1;
-        uint32_t       zStart = 2;
-        uint32_t       zEnd = frameZ - 1;
+        uint32_t       zStart = 1;
+        uint32_t       zEnd = frameZ - 2;
 
         for (uint32_t pmlCount = 1; pmlCount <= pmlLayer; ++pmlCount) {
             // ---Adding pml layers to the top and bottom surfaces---
-            for (uint32_t x = xStart; x <= xEnd; ++x) {
-                for (uint32_t z = zStart; z <= zEnd; ++z) {
-                    simData.PV_N(yShift + pmlCount, x, z, 5) = pmlType;
-                    simData.PV_N(frameY - pmlCount, x, z, 5) = pmlType;
-                }
-            }
+            simData.PV_N(yShift + pmlCount, seq(xStart, xEnd),
+                         seq(zStart, zEnd), 4) = pmlType;
+            simData.PV_N(frameY - 1 - pmlCount, seq(xStart, xEnd),
+                         seq(zStart, zEnd), 4) = pmlType;
 
             // ---Adding pml layers to the back and front surfaces---
-            for (uint32_t y = yStart; y <= yEnd; ++y) {
-                for (uint32_t x = xStart; x <= xEnd; ++x) {
-                    simData.PV_N(y, x, zShift + pmlCount, 5) = pmlType;
-                    simData.PV_N(y, x, frameZ - pmlCount, 5) = pmlType;
-                }
-            }
+            simData.PV_N(seq(yStart, yEnd), seq(xStart, xEnd),
+                         zShift + pmlCount, 4) = pmlType;
+            simData.PV_N(seq(yStart, yEnd), seq(xStart, xEnd),
+                         frameZ - 1 - pmlCount, 4) = pmlType;
 
             // ---Adding pml layers to the left and right surfaces---
-            for (uint32_t y = yStart; y <= yEnd; ++y) {
-                for (uint32_t z = zStart; z <= zEnd; ++z) {
-                    simData.PV_N(y, xShift + pmlCount, z, 5) = pmlType;
-                    simData.PV_N(y, frameX - pmlCount, z, 5) = pmlType;
-                }
-            }
+            simData.PV_N(seq(yStart, yEnd), xShift + pmlCount,
+                         seq(zStart, zEnd), 4) = pmlType;
+            simData.PV_N(seq(yStart, yEnd), frameX - 1 - pmlCount,
+                         seq(zStart, zEnd), 4) = pmlType;
 
             // Update the pmlLayer type.
             // Update the start and end position
-            pmlType--;
+            pmlType = pmlType - 1;
+            xStart = xStart + 1;
+            xEnd = xEnd - 1;
 
-            xStart++;
-            xEnd--;
+            yStart = yStart + 1;
+            yEnd = yEnd - 1;
 
-            yStart++;
-            yEnd--;
-
-            zStart++;
-            zEnd--;
+            zStart = zStart + 1;
+            zEnd = zEnd - 1;
         }
     }
 
@@ -330,8 +318,7 @@ void talkingTube() {
     if (plotCells) {
         // Visualize the PML layers and excitation cell by taking a slice of the
         // domain
-        Tensor3<GridCellType> buildFrame =
-            simData.PV_N.chip(5, 3).cast<GridCellType>();
+        array buildFrame = simData.PV_N(span, span, span, 4);
         // Uncomment to visualise source position for the open space simulation
         // buildFrame(midY, midX, midZ) = -1;
         buildFrame(simData.listenerInfo.listenerY,
@@ -339,21 +326,24 @@ void talkingTube() {
                    simData.listenerInfo.listenerZ) = GridCellType::cell_head;
 
         // Slice along XZ-plane
-        const auto frame_xz =
-            buildFrame.chip((uint32_t)std::ceil(frameY / 2.0), 0);
+        array frame_xz =
+            buildFrame((uint32_t)std::ceil((frameY - 1) / 2.0), span, span);
 
         // Slice along YZ-plane
-        const auto frame_yz =
-            buildFrame.chip((uint32_t)std::ceil(frameX / 2.0), 1);
+        array frame_yz =
+            buildFrame(span, (uint32_t)std::ceil((frameX - 1) / 2.0), span);
 
         // Slice along XY-plane
-        const auto frame_xy =
-            buildFrame.chip((uint32_t)std::ceil(frameZ / 2.0), 2);
+        array frame_xy =
+            buildFrame(span, span, (uint32_t)std::ceil((frameZ - 1) / 2.0));
 
         // Save images
-        const auto frame_xz_image = image::makeCellImage(frame_xz);
-        const auto frame_yz_image = image::makeCellImage(frame_yz);
-        const auto frame_xy_image = image::makeCellImage(frame_xy);
+        const auto frame_xz_image =
+            image::makeCellImage(moddims(frame_xz, frameX, frameZ));
+        const auto frame_yz_image =
+            image::makeCellImage(moddims(frame_yz, frameY, frameZ));
+        const auto frame_xy_image =
+            image::makeCellImage(moddims(frame_xy, frameY, frameX));
         image::saveToPng("images/frame_xz.png", frame_xz_image);
         image::saveToPng("images/frame_yz.png", frame_yz_image);
         image::saveToPng("images/frame_xy.png", frame_xy_image);
@@ -391,18 +381,19 @@ void talkingTube() {
     // Create arrays to store cellTypes, beta, and sigmaPrime_dt values
     // We create 4 columns here as each grid cell has three neighbours
     // Note => We don't need to define these arrays [Just for my understanding]
-    auto cellTypes = zeros<Array4<uint32_t>>(4);
-    auto typeIndex = zeros<Array4<uint32_t>>(4);
-    auto beta = zeros<Array4<double>>(4);
-    auto sigmaPrime_dt = zeros<Array4<double>>(4);
+    array cellTypes = constant(0, 1, 4);
+    array beta = constant(0, 1, 4);
+    array sigmaPrime_dt = constant(0, 1, 4);
 
     // To store is_excitation and excitation_weight
-    const uint32_t numGridCellsForComputation = height * width * depth;
-    auto is_excitation = zeros<Array4X<double>>(4, numGridCellsForComputation);
-    auto excitation_weight =
-        zeros<Array3X<double>>(3, numGridCellsForComputation);
-    auto N_out = zeros<ArrayX<double>>(numGridCellsForComputation);
-    auto N_in = zeros<ArrayX<double>>(numGridCellsForComputation);
+    const uint32_t numGridCellsForComputation =
+        (frameX - 2) * (frameY - 2) * (frameZ - 2);
+
+    array is_excitation = constant(0, 4, numGridCellsForComputation);
+    array excitation_weight = constant(0, 3, numGridCellsForComputation);
+    array xor_term = constant(0, 6, numGridCellsForComputation);
+    array N_out = constant(0, 1, numGridCellsForComputation);
+    array N_in = constant(0, 1, numGridCellsForComputation);
 
     // Create arrays to store minBeta and maxSigmaPrime_dt
     // Note => We consider minBeta, because beta parameter is defined at the
@@ -410,43 +401,40 @@ void talkingTube() {
     // edges [2D grid cell]/ side surfaces [3D grid cell]. Therefore, we
     // tie-break between these grid cells considering minBeta value.
 
-    auto minVxBeta = zeros<Tensor3<double>>(height, width, depth);
-    auto minVyBeta = zeros<Tensor3<double>>(height, width, depth);
-    auto minVzBeta = zeros<Tensor3<double>>(height, width, depth);
+    array minVxBeta = constant(0, height, width, depth);
+    array minVyBeta = constant(0, height, width, depth);
+    array minVzBeta = constant(0, height, width, depth);
 
-    auto maxVxSigmaPrimedt = zeros<Tensor3<double>>(height, width, depth);
-    auto maxVySigmaPrimedt = zeros<Tensor3<double>>(height, width, depth);
-    auto maxVzSigmaPrimedt = zeros<Tensor3<double>>(height, width, depth);
+    array maxVxSigmaPrimedt = constant(0, height, width, depth);
+    array maxVySigmaPrimedt = constant(0, height, width, depth);
+    array maxVzSigmaPrimedt = constant(0, height, width, depth);
 
     // Store the excitation_weight and are_we_not_excitations in matrix format
     // to compute Vx, Vy, Vz
-    auto excitation_Vx_weight = zeros<Tensor3<double>>(height, width, depth);
-    auto excitation_Vy_weight = zeros<Tensor3<double>>(height, width, depth);
-    auto excitation_Vz_weight = zeros<Tensor3<double>>(height, width, depth);
+    array excitation_Vx_weight = constant(0, height, width, depth);
+    array excitation_Vy_weight = constant(0, height, width, depth);
+    array excitation_Vz_weight = constant(0, height, width, depth);
 
-    auto are_we_not_excitations_Vx =
-        zeros<Tensor3<double>>(height, width, depth);
-    auto are_we_not_excitations_Vy =
-        zeros<Tensor3<double>>(height, width, depth);
-    auto are_we_not_excitations_Vz =
-        zeros<Tensor3<double>>(height, width, depth);
+    array are_we_not_excitations_Vx = constant(0, height, width, depth);
+    array are_we_not_excitations_Vy = constant(0, height, width, depth);
+    array are_we_not_excitations_Vz = constant(0, height, width, depth);
 
     // Store the xor_val in matrix format
-    auto xor_val1 = zeros<Tensor3<double>>(height, width, depth);
-    auto xor_val2 = zeros<Tensor3<double>>(height, width, depth);
-    auto xor_val3 = zeros<Tensor3<double>>(height, width, depth);
-    auto xor_val4 = zeros<Tensor3<double>>(height, width, depth);
-    auto xor_val5 = zeros<Tensor3<double>>(height, width, depth);
-    auto xor_val6 = zeros<Tensor3<double>>(height, width, depth);
+    array xor_val1 = constant(0, height, width, depth);
+    array xor_val2 = constant(0, height, width, depth);
+    array xor_val3 = constant(0, height, width, depth);
+    array xor_val4 = constant(0, height, width, depth);
+    array xor_val5 = constant(0, height, width, depth);
+    array xor_val6 = constant(0, height, width, depth);
 
     // Store the N_out and N_in in matrix format
-    auto N_out_mat = zeros<Tensor3<double>>(height, width, depth);
-    auto N_in_mat = zeros<Tensor3<double>>(height, width, depth);
+    array N_out_mat = constant(0, height, width, depth);
+    array N_in_mat = constant(0, height, width, depth);
 
     // Note => We are reshaping sigmaPrimedt in matrix format as we need this
     // while calculating pressure [Check the denominator of the discretized
     // pressure equation]
-    auto sigmaPrimedt = zeros<Tensor3<double>>(height, width, depth);
+    array sigmaPrimedt = constant(0, height, width, depth);
 
     // Note => Here for each grid cell, we store cell type, beta and
     // siggmaPrine_dt values in arrays for its neighbor cells and the current
@@ -456,38 +444,32 @@ void talkingTube() {
 
     // Set a counter to save data for is_excitation, excitation_weight, xor,
     // N_out, N_in
-    uint32_t counter = 1;
+    uint32_t counter = 0;
 
-    for (uint32_t height_idx = 2; height_idx <= frameY - 1; ++height_idx) {
-        for (uint32_t width_idx = 2; width_idx <= frameX - 1; ++width_idx) {
-            for (uint32_t depth_idx = 2; depth_idx <= frameZ - 1; ++depth_idx) {
+    for (uint32_t height_idx = 1; height_idx <= frameY - 2; ++height_idx) {
+        for (uint32_t width_idx = 1; width_idx <= frameX - 2; ++width_idx) {
+            for (uint32_t depth_idx = 1; depth_idx <= frameZ - 2; ++depth_idx) {
                 // Find the cellTypes = [current, right_current, up_current,
                 // front_current]
-                auto cellTypes = zeros<Array4<uint32_t>>(4);
+                cellTypes(0) =
+                    simData.PV_N(height_idx, width_idx, depth_idx, 4);
                 cellTypes(1) =
-                    simData.PV_N(height_idx, width_idx, depth_idx, 5);
+                    simData.PV_N(height_idx, width_idx + 1, depth_idx, 4);
                 cellTypes(2) =
-                    simData.PV_N(height_idx, width_idx + 1, depth_idx, 5);
+                    simData.PV_N(height_idx - 1, width_idx, depth_idx, 4);
                 cellTypes(3) =
-                    simData.PV_N(height_idx - 1, width_idx, depth_idx, 5);
-                cellTypes(4) =
-                    simData.PV_N(height_idx, width_idx, depth_idx + 1, 5);
-
-                // For typeIndex add 1 to cellTypes
-                typeIndex = cellTypes + 1;
+                    simData.PV_N(height_idx, width_idx, depth_idx + 1, 4);
 
                 // Store beta values in beta array
-                for (uint32_t i = 1; i <= 4; ++i) {
-                    beta(i) = typeValues(1, typeIndex(i));
-                }
+                beta = typeValues(0, cellTypes);
 
                 // Calculate minBeta
-                const double min_beta_Vx = std::min(
-                    beta(1), beta(2));  // minBeta(current, right_current)
-                const double min_beta_Vy = std::min(
-                    beta(1), beta(3));  // minBeta(current, top_current)
-                const double min_beta_Vz = std::min(
-                    beta(1), beta(4));  // minBeta(current, front_current)
+                const array min_beta_Vx =
+                    min(beta(0), beta(1));  // minBeta(current, right_current)
+                const array min_beta_Vy =
+                    min(beta(0), beta(2));  // minBeta(current, top_current)
+                const array min_beta_Vz =
+                    min(beta(0), beta(3));  // minBeta(current, front_current)
 
                 minVxBeta(height_idx - 1, width_idx - 1, depth_idx - 1) =
                     min_beta_Vx;
@@ -497,21 +479,19 @@ void talkingTube() {
                     min_beta_Vz;
 
                 // Store sigmaPrime*dt values in sigmaPrime_dt
-                for (uint32_t i = 1; i <= 4; ++i) {
-                    sigmaPrime_dt(i) = typeValues(2, typeIndex(i));
-                }
+                sigmaPrime_dt = typeValues(1, cellTypes);
 
                 // Store sigmaPrime_dt of the current cell only
                 sigmaPrimedt(height_idx - 1, width_idx - 1, depth_idx - 1) =
-                    sigmaPrime_dt(1);
+                    sigmaPrime_dt(0);
 
                 // Calculate maxSigmaPrime_dt
-                const double max_sigmaPrimedt_Vx =
-                    std::max(sigmaPrime_dt(1), sigmaPrime_dt(2));
-                const double max_sigmaPrimedt_Vy =
-                    std::max(sigmaPrime_dt(1), sigmaPrime_dt(3));
-                const double max_sigmaPrimedt_Vz =
-                    std::max(sigmaPrime_dt(1), sigmaPrime_dt(4));
+                const array max_sigmaPrimedt_Vx =
+                    max(sigmaPrime_dt(0), sigmaPrime_dt(1));
+                const array max_sigmaPrimedt_Vy =
+                    max(sigmaPrime_dt(0), sigmaPrime_dt(2));
+                const array max_sigmaPrimedt_Vz =
+                    max(sigmaPrime_dt(0), sigmaPrime_dt(3));
 
                 maxVxSigmaPrimedt(height_idx - 1, width_idx - 1,
                                   depth_idx - 1) = max_sigmaPrimedt_Vx;
@@ -521,27 +501,25 @@ void talkingTube() {
                                   depth_idx - 1) = max_sigmaPrimedt_Vz;
 
                 // Check whether the current cell is an excitation cell or not
-                for (uint32_t i = 1; i <= 4; ++i) {
-                    is_excitation(i, counter) =
-                        (double)(cellTypes(i) == (uint32_t)vt::cell_excitation);
-                }
+                is_excitation(span, counter) =
+                    (cellTypes == (uint32_t)vt::cell_excitation);
 
                 // Verify if both the current cell and neighbouring cells are
                 // not excitation cells
                 are_we_not_excitations_Vx(height_idx - 1, width_idx - 1,
                                           depth_idx - 1) =
-                    (1 - is_excitation(1, counter)) *
-                    (1 - is_excitation(2, counter));
+                    (1 - is_excitation(0, counter)) *
+                    (1 - is_excitation(1, counter));
 
                 are_we_not_excitations_Vy(height_idx - 1, width_idx - 1,
                                           depth_idx - 1) =
-                    (1 - is_excitation(1, counter)) *
-                    (1 - is_excitation(3, counter));
+                    (1 - is_excitation(0, counter)) *
+                    (1 - is_excitation(2, counter));
 
                 are_we_not_excitations_Vz(height_idx - 1, width_idx - 1,
                                           depth_idx - 1) =
-                    (1 - is_excitation(1, counter)) *
-                    (1 - is_excitation(4, counter));
+                    (1 - is_excitation(0, counter)) *
+                    (1 - is_excitation(3, counter));
 
                 // Determine excitation weight for the current cell
                 // Find excitation velocity going out of the cell and coming
@@ -549,53 +527,53 @@ void talkingTube() {
                 // Add them all to find the net velocity [velocity components]
                 // for the current cell.
 
-                const auto excitationWeightForward =
-                    is_excitation(1, counter) * (srcDirection(seq(4, 6)));
+                const array excitationWeightForward =
+                    tile(is_excitation(0, counter), 3) *
+                    srcDirection(seq(3, 5));
 
-                const auto excitationWeightBackward =
-                    is_excitation(seq(2, 4), counter).cast<double>() *
-                    (srcDirection(seq(1, 3)));
+                const array excitationWeightBackward =
+                    is_excitation(seq(1, 3), counter) * srcDirection(seq(0, 2));
 
-                excitation_weight(seq(1, 3), counter) =
+                excitation_weight(span, counter) =
                     excitationWeightForward + excitationWeightBackward;
 
                 // Store the excitation_weight in matrix format
                 excitation_Vx_weight(height_idx - 1, width_idx - 1,
                                      depth_idx - 1) =
-                    excitation_weight(1, counter);
+                    excitation_weight(0, counter);
 
                 excitation_Vy_weight(height_idx - 1, width_idx - 1,
                                      depth_idx - 1) =
-                    excitation_weight(2, counter);
+                    excitation_weight(1, counter);
 
                 excitation_Vz_weight(height_idx - 1, width_idx - 1,
                                      depth_idx - 1) =
-                    excitation_weight(3, counter);
+                    excitation_weight(2, counter);
 
                 // Check the adjacent cells to determine the velocity direction
                 xor_val1(height_idx - 1, width_idx - 1, depth_idx - 1) =
-                    beta(2) * (1 - beta(1));
+                    beta(1) * (1 - beta(0));
                 xor_val2(height_idx - 1, width_idx - 1, depth_idx - 1) =
-                    beta(1) * (1 - beta(2));
+                    beta(0) * (1 - beta(1));
 
                 xor_val3(height_idx - 1, width_idx - 1, depth_idx - 1) =
-                    beta(3) * (1 - beta(1));
+                    beta(2) * (1 - beta(0));
                 xor_val4(height_idx - 1, width_idx - 1, depth_idx - 1) =
-                    beta(1) * (1 - beta(3));
+                    beta(0) * (1 - beta(2));
 
                 xor_val5(height_idx - 1, width_idx - 1, depth_idx - 1) =
-                    beta(4) * (1 - beta(1));
+                    beta(3) * (1 - beta(0));
                 xor_val6(height_idx - 1, width_idx - 1, depth_idx - 1) =
-                    beta(1) * (1 - beta(4));
+                    beta(0) * (1 - beta(3));
 
                 // Find the boundary condition from the lookup table and
                 // select the corresponding unit vector
                 uint32_t lookup_idx = (uint32_t)(-1);
 
                 for (uint32_t i = 0; i < lookUp_table_count; ++i) {
-                    if (lookUp_table[i][0] == beta(2) &&
-                        lookUp_table[i][1] == beta(3) &&
-                        lookUp_table[i][2] == beta(4)) {
+                    if (allTrue<bool>(lookUp_table[i][0] == beta(1) &&
+                                      lookUp_table[i][1] == beta(2) &&
+                                      lookUp_table[i][2] == beta(3))) {
                         lookup_idx = i;
                         break;
                     }
@@ -605,14 +583,14 @@ void talkingTube() {
                     throw std::logic_error("invalid state");
                 }
 
-                N_out(counter) = air_normalV_component[lookup_idx] * beta(1);
-                N_in(counter) =
-                    wall_normalV_component[lookup_idx] * (1 - beta(1));
+                N_out(0, counter) = air_normalV_component[lookup_idx] * beta(0);
+                N_in(0, counter) =
+                    wall_normalV_component[lookup_idx] * (1 - beta(0));
 
                 N_out_mat(height_idx - 1, width_idx - 1, depth_idx - 1) =
-                    N_out(counter);
+                    N_out(0, counter);
                 N_in_mat(height_idx - 1, width_idx - 1, depth_idx - 1) =
-                    N_in(counter);
+                    N_in(0, counter);
 
                 // Increment the counter
                 counter++;
@@ -620,97 +598,96 @@ void talkingTube() {
         }
     }
 
-    const auto betaVxSqr = minVxBeta.square();
-    const auto betaVySqr = minVyBeta.square();
-    const auto betaVzSqr = minVzBeta.square();
+    const array betaVxSqr = pow(minVxBeta, 2);
+    const array betaVySqr = pow(minVyBeta, 2);
+    const array betaVzSqr = pow(minVzBeta, 2);
 
-    const Tensor3<double> betaVxSqr_dt_invRho = (betaVxSqr * dt) / rho;
-    const Tensor3<double> betaVySqr_dt_invRho = (betaVySqr * dt) / rho;
-    const Tensor3<double> betaVzSqr_dt_invRho = (betaVzSqr * dt) / rho;
+    const array betaVxSqr_dt_invRho = (betaVxSqr * dt) / rho;
+    const array betaVySqr_dt_invRho = (betaVySqr * dt) / rho;
+    const array betaVzSqr_dt_invRho = (betaVzSqr * dt) / rho;
 
-    const auto rho_sqrC_dt_invds = (kappa * dt) / ds;
-    const auto rho_sqrC_dt = kappa * dt;
+    const double rho_sqrC_dt_invds = (kappa * dt) / ds;
+    const double rho_sqrC_dt = kappa * dt;
 
     // INITIALISE ACOUSTIC PARAMETERS AND COEFFICIENTS
-    auto PV_NPlus1 = zeros<Tensor4<double>>(frameY, frameX, frameZ, 5);
+    array PV_NPlus1 = constant(0, frameY, frameX, frameZ, 5);
 
-    auto Ug_array = zeros<ArrayXd>(STEPS);
+    array Ug_array = constant(0, 1, STEPS);
 
-    auto CxVx = zeros<Tensor3<double>>(frameY - 2, frameX - 2, frameZ - 2);
-    auto CyVy = zeros<Tensor3<double>>(frameY - 2, frameX - 2, frameZ - 2);
-    auto CzVz = zeros<Tensor3<double>>(frameY - 2, frameX - 2, frameZ - 2);
+    array CxVx = constant(0, frameY - 2, frameX - 2, frameZ - 2);
+    array CyVy = constant(0, frameY - 2, frameX - 2, frameZ - 2);
+    array CzVz = constant(0, frameY - 2, frameX - 2, frameZ - 2);
 
-    auto CxP = zeros<Tensor3<double>>(frameY - 2, frameX - 2, frameZ - 2);
-    auto CyP = zeros<Tensor3<double>>(frameY - 2, frameX - 2, frameZ - 2);
-    auto CzP = zeros<Tensor3<double>>(frameY - 2, frameX - 2, frameZ - 2);
+    array CxP = constant(0, frameY - 2, frameX - 2, frameZ - 2);
+    array CyP = constant(0, frameY - 2, frameX - 2, frameZ - 2);
+    array CzP = constant(0, frameY - 2, frameX - 2, frameZ - 2);
 
-    auto Pr_next = zeros<Tensor3<double>>(frameY - 2, frameX - 2, frameZ - 2);
-    auto Vx_next = zeros<Tensor3<double>>(frameY - 2, frameX - 2, frameZ - 2);
-    auto Vy_next = zeros<Tensor3<double>>(frameY - 2, frameX - 2, frameZ - 2);
-    auto Vz_next = zeros<Tensor3<double>>(frameY - 2, frameX - 2, frameZ - 2);
+    array Pr_next = constant(0, frameY - 2, frameX - 2, frameZ - 2);
+    array Vx_next = constant(0, frameY - 2, frameX - 2, frameZ - 2);
+    array Vy_next = constant(0, frameY - 2, frameX - 2, frameZ - 2);
+    array Vz_next = constant(0, frameY - 2, frameX - 2, frameZ - 2);
 
-    auto vb_alphaX = zeros<Tensor3<double>>(frameY - 2, frameX - 2, frameZ - 2);
-    auto vb_alphaY = zeros<Tensor3<double>>(frameY - 2, frameX - 2, frameZ - 2);
-    auto vb_alphaZ = zeros<Tensor3<double>>(frameY - 2, frameX - 2, frameZ - 2);
+    array vb_alphaX = constant(0, frameY - 2, frameX - 2, frameZ - 2);
+    array vb_alphaY = constant(0, frameY - 2, frameX - 2, frameZ - 2);
+    array vb_alphaZ = constant(0, frameY - 2, frameX - 2, frameZ - 2);
 
     // Introduce Dirichlet boundary condition
-    uint32_t        xNoPressure;
-    Tensor2<double> isNoPressureCell;
+    uint32_t xNoPressure;
+    array    isNoPressureCell;
 
     if (rad == MouthTermination::DirichletBoundary &&
         simulationType != SimulationType::OpenSpace) {
         xNoPressure = simData.tubeStart.startX + simData.totalTubeLengthInCells;
         // gridNoPressurePlane = PV_N(:, xNoPressure, :, 5)
-        const auto gridNoPressurePlane =
-            simData.PV_N.chip(5, 3).chip(xNoPressure, 1);
+        const array gridNoPressurePlane =
+            simData.PV_N(span, xNoPressure, span, 4);
         isNoPressureCell =
-            (gridNoPressurePlane == (double)GridCellType::cell_noPressure)
-                .cast<double>();
+            (gridNoPressurePlane == (float)GridCellType::cell_noPressure);
     }
 
-    for (uint32_t T = 1; T <= STEPS; ++T) {
+    // MOVE TO GPU
+
+    // --
+
+    for (uint32_t T = 0; T < STEPS; ++T) {
         // STEP1: Calculate [del.V] = [dVx/dx + dVy/dy + dVz/dz]
         // CxVx = dVx, where Vx = velocity along x direction = Vx_curr - Vx_left
         // CyVy = dVy, where Vy = velocity along y direction = Vy_curr - Vy_down
         // CzVz = dVz, where Vz = velocity along z direction = Vz_curr - Vz_back
 
-        for (uint32_t y = 1; y <= frameY - 2; ++y) {
-            for (uint32_t x = 1; x <= frameX - 2; ++x) {
-                for (uint32_t z = 1; z <= frameZ - 2; ++z) {
-                    CxVx(y, x, z) = simData.PV_N(y + 1, x + 1, z + 1, 2) -
-                                    simData.PV_N(y + 1, x, z + 1, 2);
+        CxVx(seq(0, frameY - 3), seq(0, frameX - 3), seq(0, frameZ - 3)) =
+            simData.PV_N(seq(1, frameY - 2), seq(1, frameX - 2),
+                         seq(1, frameZ - 2), 1) -
+            simData.PV_N(seq(1, frameY - 2), seq(0, frameX - 3),
+                         seq(1, frameZ - 2), 1);
 
-                    CyVy(y, x, z) = simData.PV_N(y + 1, x + 1, z + 1, 3) -
-                                    simData.PV_N(y + 2, x + 1, z + 1, 3);
+        CyVy(seq(0, frameY - 3), seq(0, frameX - 3), seq(0, frameZ - 3)) =
+            simData.PV_N(seq(1, frameY - 2), seq(1, frameX - 2),
+                         seq(1, frameZ - 2), 2) -
+            simData.PV_N(seq(2, frameY - 1), seq(1, frameX - 2),
+                         seq(1, frameZ - 2), 2);
 
-                    CzVz(y, x, z) = simData.PV_N(y + 1, x + 1, z + 1, 4) -
-                                    simData.PV_N(y + 1, x + 1, z, 4);
-                }
-            }
-        }
+        CzVz(seq(0, frameY - 3), seq(0, frameX - 3), seq(0, frameZ - 3)) =
+            simData.PV_N(seq(1, frameY - 2), seq(1, frameX - 2),
+                         seq(1, frameZ - 2), 3) -
+            simData.PV_N(seq(1, frameY - 2), seq(1, frameX - 2),
+                         seq(0, frameZ - 3), 3);
 
         // STEP2: Calculate Pr_next
 
-        for (uint32_t y = 1; y <= frameY - 2; ++y) {
-            for (uint32_t x = 1; x <= frameX - 2; ++x) {
-                for (uint32_t z = 1; z <= frameZ - 2; ++z) {
-                    Pr_next(y, x, z) =
-                        (simData.PV_N(y + 1, x + 1, z + 1, 1) -
-                         (rho_sqrC_dt_invds *
-                          (CxVx(y, x, z) + CyVy(y, x, z) + CzVz(y, x, z)))) /
-                        (1 + sigmaPrimedt(y, x, z));
-
-                    PV_NPlus1(y + 1, x + 1, z + 1, 1) = Pr_next(y, x, z);
-                }
-            }
-        }
+        Pr_next(seq(0, frameY - 3), seq(0, frameX - 3), seq(0, frameZ - 3)) =
+            (simData.PV_N(seq(1, frameY - 2), seq(1, frameX - 2),
+                          seq(1, frameZ - 2), 0) -
+             (rho_sqrC_dt_invds * (CxVx + CyVy + CzVz))) /
+            (1 + sigmaPrimedt);
 
         // Make pressure values of no_pressure cells as zeros
         if (rad == MouthTermination::DirichletBoundary &&
             simulationType != SimulationType::OpenSpace) {
             /* PV_NPlus1(:, xNoPressure, :, 1) =
                     PV_NPlus1(:, xNoPressure, :, 1) .* isNoPressureCell; */
-            PV_NPlus1.chip(1, 3).chip(xNoPressure, 1) *= isNoPressureCell;
+            PV_NPlus1(span, xNoPressure, span, 0) =
+                PV_NPlus1(span, xNoPressure, span, 0) * isNoPressureCell;
         }
 
         // STEP3: Calculate Vx_next, Vy_next and Vz_next
@@ -718,42 +695,45 @@ void talkingTube() {
         // CyP [del.Py] = [dPy/dy] = Pr_top   - Pr_curr
         // CzP [del.Pz] = [dPz/dz] = Pr_front - Pr_curr
 
-        for (uint32_t y = 1; y <= frameY - 2; ++y) {
-            for (uint32_t x = 1; x <= frameX - 2; ++x) {
-                for (uint32_t z = 1; z <= frameZ - 2; ++z) {
-                    CxP(y, x, z) = (PV_NPlus1(y + 1, x + 2, z + 1, 1) -
-                                    PV_NPlus1(y + 1, x + 1, z + 1, 1)) /
-                                   dx;
+        CxP = (PV_NPlus1(seq(1, frameY - 2), seq(2, frameX - 1),
+                         seq(1, frameZ - 2), 0) -
+               PV_NPlus1(seq(1, frameY - 2), seq(1, frameX - 2),
+                         seq(1, frameZ - 2), 0)) /
+              dx;
 
-                    CyP(y, x, z) = (PV_NPlus1(y, x + 1, z + 1, 1) -
-                                    PV_NPlus1(y + 1, x + 1, z + 1, 1)) /
-                                   dy;
+        CyP = (PV_NPlus1(seq(0, frameY - 3), seq(1, frameX - 2),
+                         seq(1, frameZ - 2), 0) -
+               PV_NPlus1(seq(1, frameY - 2), seq(1, frameX - 2),
+                         seq(1, frameZ - 2), 0)) /
+              dy;
 
-                    CzP(y, x, z) = (PV_NPlus1(y + 1, x + 1, z + 2, 1) -
-                                    PV_NPlus1(y + 1, x + 1, z + 1, 1)) /
-                                   dz;
+        CzP = (PV_NPlus1(seq(1, frameY - 2), seq(1, frameX - 2),
+                         seq(1, frameZ - 2), 0) -
+               PV_NPlus1(seq(1, frameY - 2), seq(1, frameX - 2),
+                         seq(2, frameZ - 1), 0)) /
+              dz;
 
-                    Vx_next(y, x, z) =
-                        (minVxBeta(y, x, z) *
-                         simData.PV_N(y + 1, x + 1, z + 1, 2)) -
-                        (betaVxSqr_dt_invRho(y, x, z) * CxP(y, x, z));
+        Vx_next(seq(0, frameY - 3), seq(0, frameX - 3), seq(0, frameZ - 3)) =
+            (minVxBeta * simData.PV_N(seq(1, frameY - 2), seq(1, frameX - 2),
+                                      seq(1, frameZ - 2), 1)) -
+            (betaVxSqr_dt_invRho * CxP);
 
-                    Vy_next(y, x, z) =
-                        (minVyBeta(y, x, z) *
-                         simData.PV_N(y + 1, x + 1, z + 1, 3)) -
-                        (betaVySqr_dt_invRho(y, x, z) * CyP(y, x, z));
+        Vy_next(seq(0, frameY - 3), seq(0, frameX - 3), seq(0, frameZ - 3)) =
+            (minVyBeta * simData.PV_N(seq(1, frameY - 2), seq(1, frameX - 2),
+                                      seq(1, frameZ - 2), 2)) -
+            (betaVySqr_dt_invRho * CyP);
 
-                    Vz_next(y, x, z) =
-                        (minVzBeta(y, x, z) *
-                         simData.PV_N(y + 1, x + 1, z + 1, 4)) -
-                        (betaVzSqr_dt_invRho(y, x, z) * CzP(y, x, z));
+        Vz_next(seq(0, frameY - 3), seq(0, frameX - 3), seq(0, frameZ - 3)) =
+            (minVzBeta * simData.PV_N(seq(1, frameY - 2), seq(1, frameX - 2),
+                                      seq(1, frameZ - 2), 3)) -
+            (betaVzSqr_dt_invRho * CzP);
 
-                    PV_NPlus1(y + 1, x + 1, z + 1, 2) = Vx_next(y, x, z);
-                    PV_NPlus1(y + 1, x + 1, z + 1, 3) = Vy_next(y, x, z);
-                    PV_NPlus1(y + 1, x + 1, z + 1, 4) = Vz_next(y, x, z);
-                }
-            }
-        }
+        PV_NPlus1(seq(1, frameY - 2), seq(1, frameX - 2), seq(1, frameZ - 2),
+                  1) = Vx_next(span, span, span);
+        PV_NPlus1(seq(1, frameY - 2), seq(1, frameX - 2), seq(1, frameZ - 2),
+                  2) = Vy_next(span, span, span);
+        PV_NPlus1(seq(1, frameY - 2), seq(1, frameX - 2), seq(1, frameZ - 2),
+                  3) = Vz_next(span, span, span);
 
         // STEP4(i) : Inject excitation velocity
         // STEP4(ii): Enforce boundary condition
@@ -764,165 +744,93 @@ void talkingTube() {
         if (sourceModelType == SourceType::VFModel) {
             // TODO
         } else {
-            exeCurrentVal = excitationV(T);
+            exeCurrentVal = excitationV(T).scalar<float>();
         }
 
         // Update Vx, Vy and Vz components of the current cell with the
         // excitation velocity
-        for (uint32_t y = 1; y <= frameY - 2; ++y) {
-            for (uint32_t x = 1; x <= frameX - 2; ++x) {
-                for (uint32_t z = 1; z <= frameZ - 2; ++z) {
-                    PV_NPlus1(y + 1, x + 1, z + 1, 2) +=
-                        exeCurrentVal * excitation_Vx_weight(y, x, z) *
-                        maxVxSigmaPrimedt(y, x, z);
+        PV_NPlus1(seq(1, frameY - 2), seq(1, frameX - 2), seq(1, frameZ - 2),
+                  1) +=
+            exeCurrentVal * excitation_Vx_weight * maxVxSigmaPrimedt;
 
-                    PV_NPlus1(y + 1, x + 1, z + 1, 3) +=
-                        exeCurrentVal * excitation_Vy_weight(y, x, z) *
-                        maxVySigmaPrimedt(y, x, z);
+        PV_NPlus1(seq(1, frameY - 2), seq(1, frameX - 2), seq(1, frameZ - 2),
+                  2) +=
+            exeCurrentVal * excitation_Vy_weight * maxVySigmaPrimedt;
 
-                    PV_NPlus1(y + 1, x + 1, z + 1, 4) +=
-                        exeCurrentVal * excitation_Vz_weight(y, x, z) *
-                        maxVzSigmaPrimedt(y, x, z);
-                }
-            }
-        }
+        PV_NPlus1(seq(1, frameY - 2), seq(1, frameX - 2), seq(1, frameZ - 2),
+                  3) +=
+            exeCurrentVal * excitation_Vz_weight * maxVzSigmaPrimedt;
 
         // Determine velocity near the wall
-        for (uint32_t y = 1; y <= frameY - 2; ++y) {
-            for (uint32_t x = 1; x <= frameX - 2; ++x) {
-                for (uint32_t z = 1; z <= frameZ - 2; ++z) {
-                    vb_alphaX(y, x, z) =
-                        xor_val2(y, x, z) * PV_NPlus1(y + 1, x + 1, z + 1, 1) *
-                            N_out_mat(y, x, z) -
-                        xor_val1(y, x, z) * PV_NPlus1(y + 1, x + 2, z + 1, 1) *
-                            N_in_mat(y, x, z);
+        vb_alphaX = (vb_alphaX * are_we_not_excitations_Vx.as(f32)) * z_inv;
+        vb_alphaY = (vb_alphaY * are_we_not_excitations_Vy.as(f32)) * z_inv;
+        vb_alphaZ = (vb_alphaZ * are_we_not_excitations_Vz.as(f32)) * z_inv;
 
-                    vb_alphaY(y, x, z) =
-                        xor_val4(y, x, z) * PV_NPlus1(y + 1, x + 1, z + 1, 1) *
-                            N_out_mat(y, x, z) -
-                        xor_val3(y, x, z) * PV_NPlus1(y, x + 1, z + 1, 1) *
-                            N_in_mat(y, x, z);
+        PV_NPlus1(seq(1, frameY - 2), seq(1, frameX - 2), seq(1, frameZ - 2),
+                  1) += maxVxSigmaPrimedt * vb_alphaX;
 
-                    vb_alphaZ(y, x, z) =
-                        xor_val6(y, x, z) * PV_NPlus1(y + 1, x + 1, z + 1, 1) *
-                            N_out_mat(y, x, z) -
-                        xor_val5(y, x, z) * PV_NPlus1(y + 1, x + 1, z + 2, 1) *
-                            N_in_mat(y, x, z);
-                }
-            }
-        }
+        PV_NPlus1(seq(1, frameY - 2), seq(1, frameX - 2), seq(1, frameZ - 2),
+                  2) += maxVySigmaPrimedt * vb_alphaY;
 
-        // Apply tube boundary condition/wall losses
-        vb_alphaX *= are_we_not_excitations_Vx.cast<double>() * z_inv;
-        vb_alphaY *= are_we_not_excitations_Vy.cast<double>() * z_inv;
-        vb_alphaZ *= are_we_not_excitations_Vz.cast<double>() * z_inv;
-
-        for (uint32_t y = 1; y <= frameY - 2; ++y) {
-            for (uint32_t x = 1; x <= frameX - 2; ++x) {
-                for (uint32_t z = 1; z <= frameZ - 2; ++z) {
-                    PV_NPlus1(y + 1, x + 1, z + 1, 2) +=
-                        maxVxSigmaPrimedt(y, x, z) * vb_alphaX(y, x, z);
-
-                    PV_NPlus1(y + 1, x + 1, z + 1, 3) +=
-                        maxVySigmaPrimedt(y, x, z) * vb_alphaY(y, x, z);
-
-                    PV_NPlus1(y + 1, x + 1, z + 1, 4) +=
-                        maxVzSigmaPrimedt(y, x, z) * vb_alphaZ(y, x, z);
-                }
-            }
-        }
+        PV_NPlus1(seq(1, frameY - 2), seq(1, frameX - 2), seq(1, frameZ - 2),
+                  3) += maxVzSigmaPrimedt * vb_alphaZ;
 
         // Update velocity components
-        for (uint32_t y = 1; y <= frameY - 2; ++y) {
-            for (uint32_t x = 1; x <= frameX - 2; ++x) {
-                for (uint32_t z = 1; z <= frameZ - 2; ++z) {
-                    PV_NPlus1(y + 1, x + 1, z + 1, 2) /=
-                        (minVxBeta(y, x, z) + maxVxSigmaPrimedt(y, x, z));
+        PV_NPlus1(seq(1, frameY - 2), seq(1, frameX - 2), seq(1, frameZ - 2),
+                  1) /= (minVxBeta + maxVxSigmaPrimedt);
 
-                    PV_NPlus1(y + 1, x + 1, z + 1, 3) /=
-                        (minVyBeta(y, x, z) + maxVySigmaPrimedt(y, x, z));
+        PV_NPlus1(seq(1, frameY - 2), seq(1, frameX - 2), seq(1, frameZ - 2),
+                  2) /= (minVyBeta + maxVySigmaPrimedt);
 
-                    PV_NPlus1(y + 1, x + 1, z + 1, 4) /=
-                        (minVzBeta(y, x, z) + maxVzSigmaPrimedt(y, x, z));
-                }
-            }
-        }
+        PV_NPlus1(seq(1, frameY - 2), seq(1, frameX - 2), seq(1, frameZ - 2),
+                  3) /= (minVzBeta + maxVzSigmaPrimedt);
 
         // STEP5: Re-store the grid cell type
-        for (uint32_t y = 1; y <= frameY - 2; ++y) {
-            for (uint32_t x = 1; x <= frameX - 2; ++x) {
-                for (uint32_t z = 1; z <= frameZ - 2; ++z) {
-                    PV_NPlus1(y + 1, x + 1, z + 1, 5) =
-                        simData.PV_N(y + 1, x + 1, z + 1, 5);
-                }
-            }
-        }
+        PV_NPlus1(seq(1, frameY - 2), seq(1, frameX - 2), seq(1, frameZ - 2),
+                  4) = simData.PV_N(seq(1, frameY - 2), seq(1, frameX - 2),
+                                    seq(1, frameZ - 2), 4);
 
         // STEP6: Pass over outer dead cells
-        for (uint32_t x = 1; x <= frameX; ++x) {
-            for (uint32_t z = 1; z <= frameZ; ++z) {
-                for (uint32_t k = 1; k <= 4; ++k) {
-                    PV_NPlus1(1, x, z, k) = 0;
-                    PV_NPlus1(frameY, x, z, k) = 0;
-                }
-                PV_NPlus1(1, x, z, 5) = simData.PV_N(1, x, z, 5);
-                PV_NPlus1(frameY, x, z, 5) = simData.PV_N(frameY, x, z, 5);
-            }
-        }
+        PV_NPlus1(0, span, span, seq(0, 3)) = 0;
+        PV_NPlus1(0, span, span, 4) = simData.PV_N(0, span, span, 4);
 
-        for (uint32_t y = 1; y <= frameY; ++y) {
-            for (uint32_t z = 1; z <= frameZ; ++z) {
-                for (uint32_t k = 1; k <= 4; ++k) {
-                    PV_NPlus1(y, 1, z, k) = 0;
-                    PV_NPlus1(y, frameX, z, k) = 0;
-                }
-                PV_NPlus1(y, 1, z, 5) = simData.PV_N(y, 1, z, 5);
-                PV_NPlus1(y, frameX, z, 5) = simData.PV_N(y, frameX, z, 5);
-            }
-        }
+        PV_NPlus1(frameY - 1, span, span, seq(0, 3)) = 0;
+        PV_NPlus1(frameY - 1, span, span, 4) =
+            simData.PV_N(frameY - 1, span, span, 4);
 
-        for (uint32_t y = 1; y <= frameY; ++y) {
-            for (uint32_t x = 1; x <= frameX; ++x) {
-                for (uint32_t k = 1; k <= 4; ++k) {
-                    PV_NPlus1(y, x, 1, k) = 0;
-                    PV_NPlus1(y, x, frameZ, k) = 0;
-                }
-                PV_NPlus1(y, x, 1, 5) = simData.PV_N(y, x, 1, 5);
-                PV_NPlus1(y, x, frameZ, 5) = simData.PV_N(y, x, frameZ, 5);
-            }
-        }
+        PV_NPlus1(span, 0, span, seq(0, 3)) = 0;
+        PV_NPlus1(span, 0, span, 4) = simData.PV_N(span, 0, span, 4);
+
+        PV_NPlus1(span, frameX - 1, span, seq(0, 3)) = 0;
+        PV_NPlus1(span, frameX - 1, span, 4) =
+            simData.PV_N(span, frameX - 1, span, 4);
+
+        PV_NPlus1(span, span, 0, seq(0, 3)) = 0;
+        PV_NPlus1(span, span, 0, 4) = simData.PV_N(span, span, 0, 4);
+
+        PV_NPlus1(span, span, frameZ - 1, seq(0, 3)) = 0;
+        PV_NPlus1(span, span, frameZ - 1, 4) =
+            simData.PV_N(span, span, frameZ - 1, 4);
 
         // STEP6: Copy PV_NPlus1to PV_N for the next time frame
-        simData.PV_N = PV_NPlus1;
+        simData.PV_N = PV_NPlus1.copy();
 
         // Print remaining step numbers
         if (T % 100 == 0) {
             if (plotPressure) {
                 // Take slices to visualise the wave propagation
 
-                Tensor2<double> slice_xz = simData.PV_N.chip(1, 3).chip(
-                    (uint32_t)std::ceil(frameY / 2.0), 0);
+                array slice_xz = simData.PV_N(
+                    (uint32_t)std::ceil((frameY - 1) / 2.0), span, span, 0);
 
-                double minPressure = std::numeric_limits<double>::max();
-                double maxPressure = std::numeric_limits<double>::lowest();
+                const double minPressure = min<float>(slice_xz);
+                const double maxPressure = max<float>(slice_xz);
 
-                for (uint32_t x = 1; x <= frameX; ++x) {
-                    for (uint32_t z = 1; z <= frameZ; ++z) {
-                        if (simData.PV_N(simData.tubeStart.startY, x, z, 5) ==
-                            GridCellType::cell_wall) {
-                            slice_xz(x, z) = vis_Boundary;
-                        }
-                        if (slice_xz(x, z) < minPressure) {
-                            minPressure = slice_xz(x, z);
-                        }
-                        if (slice_xz(x, z) > maxPressure) {
-                            maxPressure = slice_xz(x, z);
-                        }
-                    }
-                }
+                slice_xz(simData.PV_N(simData.tubeStart.startY, span, span,
+                                      4) == vt::cell_wall) = vis_Boundary;
 
-                const auto slice_xz_image =
-                    image::makeWaveImage(slice_xz, vis_Min, vis_Max);
+                const auto slice_xz_image = image::makeWaveImage(
+                    moddims(slice_xz, frameX, frameZ), vis_Min, vis_Max);
 
                 image::saveToPng(
                     "images/slice_xz_" + std::to_string(T) + ".png",
@@ -948,30 +856,7 @@ void talkingTube() {
         }
 
         // CHECK IF NAN
-        bool hasNan = false;
-
-        for (uint32_t z = 1; z <= frameZ; ++z) {
-            for (uint32_t x = 1; x <= frameX; ++x) {
-                const double test_xz =
-                    simData.PV_N((uint32_t)std::ceil(frameY / 2.0), x, z, 1);
-                if (std::isnan(test_xz)) {
-                    hasNan = true;
-                    break;
-                }
-            }
-            if (hasNan) break;
-
-            for (uint32_t y = 1; y <= frameY; ++y) {
-                const double test_yz =
-                    simData.PV_N(y, (uint32_t)std::ceil(frameX / 2.0), z, 1);
-                if (std::isnan(test_yz)) {
-                    hasNan = true;
-                    break;
-                }
-            }
-            if (hasNan) break;
-        }
-
+        bool hasNan = anyTrue<bool>(isNaN(simData.PV_N(span, span, span, 0)));
         if (hasNan) {
             fprintf(stderr, "Solver exploded at step = %d\n", T);
             return;

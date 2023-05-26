@@ -5,7 +5,6 @@ namespace vt {
 
 namespace constants {
 
-constexpr double pi = 3.141592653589793238462643383279502884;
 constexpr double sqrt_3 = 1.732050807568877293527446341505872366;
 
 constexpr double rho = 1.149;  // Air density at 34°C [kg/m^3]

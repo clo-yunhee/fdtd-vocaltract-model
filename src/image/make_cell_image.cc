@@ -2,13 +2,11 @@
 
 using namespace vt;
 
-image::Image image::makeCellImage(const Tensor2<GridCellType>& frame) {
-    const auto frameSize = dimensions(frame);
+image::Image image::makeCellImage(const array& frame) {
+    const uint32_t frameWidth = frame.dims(1);
+    const uint32_t frameHeight = frame.dims(0);
 
-    const uint32_t frameWidth = frameSize[2];
-    const uint32_t frameHeight = frameSize[1];
-
-    const uint32_t cellSize = 7;
+    const uint32_t cellSize = 8;
 
     const uint32_t width = frameWidth * cellSize;
     const uint32_t height = frameHeight * cellSize;
@@ -22,7 +20,8 @@ image::Image image::makeCellImage(const Tensor2<GridCellType>& frame) {
 
     for (uint32_t fy = 0; fy < frameHeight; ++fy) {
         for (uint32_t fx = 0; fx < frameWidth; ++fx) {
-            const auto cellType = frame(fy + 1, fx + 1);
+            const GridCellType cellType =
+                (GridCellType)frame(fy, fx).scalar<float>();
             switch (cellType) {
                 case cell_wall:
                     rgba = 0xFFD700FF;  // yellow-gold

@@ -6,7 +6,7 @@
 
 namespace image {
 
-Image makeWaveImage(const Tensor2<double>& frame, double min, double max);
+Image makeWaveImage(const array& frame, double min, double max);
 
 }  // namespace image
 

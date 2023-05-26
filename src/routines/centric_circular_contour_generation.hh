@@ -5,12 +5,12 @@
 
 namespace vt {
 
-Array2X<uint32_t> centricCircularContourGeneration(
-    Tensor4<double>& PV_N, uint32_t numSections,
-    uint32_t                          totalTubeLengthInCells,
-    const Ref<const ArrayX<uint32_t>> tubeSectionDiameterCells,
-    const Ref<const ArrayXd> tubeCummSectionLength, bool boundaryInterpolation,
-    StartInfo tubeStart, double ds);
+array centricCircularContourGeneration(array& PV_N, uint32_t numSections,
+                                       uint32_t     totalTubeLengthInCells,
+                                       const array& tubeSectionDiameterCells,
+                                       const array& tubeCummSectionLength,
+                                       bool         boundaryInterpolation,
+                                       StartInfo tubeStart, double ds);
 
 }
 

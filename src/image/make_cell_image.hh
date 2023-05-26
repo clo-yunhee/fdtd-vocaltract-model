@@ -6,7 +6,7 @@
 
 namespace image {
 
-Image makeCellImage(const Tensor2<vt::GridCellType>& frame);
+Image makeCellImage(const array& frame);
 
 }  // namespace image
 

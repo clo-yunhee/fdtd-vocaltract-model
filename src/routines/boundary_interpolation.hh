@@ -5,8 +5,7 @@
 
 namespace vt {
 
-ArrayX<uint32_t> boundaryInterpolation(
-    const Ref<ArrayX<uint32_t>> tubeRadiusArray, double ds);
+array boundaryInterpolation(const array& tubeRadiusArray, double ds);
 
 }
 

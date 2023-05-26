@@ -4,12 +4,10 @@
 
 using namespace vt;
 
-image::Image image::makeWaveImage(const Tensor2<double>& frame,
-                                  const double min, const double max) {
-    const auto frameSize = dimensions(frame);
-
-    const uint32_t frameWidth = frameSize[2];
-    const uint32_t frameHeight = frameSize[1];
+image::Image image::makeWaveImage(const array& frame, const double min,
+                                  const double max) {
+    const uint32_t frameWidth = frame.dims(1);
+    const uint32_t frameHeight = frame.dims(0);
 
     const uint32_t cellSize = 8;
 
@@ -25,7 +23,7 @@ image::Image image::makeWaveImage(const Tensor2<double>& frame,
 
     for (uint32_t fy = 0; fy < frameHeight; ++fy) {
         for (uint32_t fx = 0; fx < frameWidth; ++fx) {
-            double val = frame(fy + 1, fx + 1);
+            double val = frame(fy, fx).scalar<float>();
             if (val < min) val = min;
             if (val > max) val = max;
 

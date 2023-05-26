@@ -1,6 +1,6 @@
 #include "area_function.hh"
 
-static vt::TubeProperties s_regularTube(
+static vt::TubePropertiesStatic s_regularTube(
     {
         0.97, 0.97, 0.97, 0.97, 0.97, 0.97, 0.97, 0.97, 0.97, 0.97, 0.97,
         0.97, 0.97, 0.97, 0.97, 0.97, 0.97, 0.97, 0.97, 0.97, 0.97, 0.97,
@@ -10,7 +10,7 @@ static vt::TubeProperties s_regularTube(
     0.1927  // in m
 );
 
-static vt::TubeProperties s_vowel_a(
+static vt::TubePropertiesStatic s_vowel_a(
     {
         0.56, 0.62, 0.66, 0.78, 0.97, 1.16, 1.12, 0.82, 0.55, 0.45, 0.37,
         0.29, 0.21, 0.15, 0.16, 0.25, 0.34, 0.43, 0.54, 0.61, 0.67, 0.98,
@@ -20,7 +20,7 @@ static vt::TubeProperties s_vowel_a(
     0.1709  // in m
 );
 
-static vt::TubeProperties s_vowel_i(
+static vt::TubePropertiesStatic s_vowel_i(
     {
         0.51, 0.59, 0.62, 0.72, 1.24, 2.30, 3.30, 3.59, 3.22, 2.86, 3.00,
         3.61, 4.39, 4.95, 5.17, 5.16, 5.18, 5.26, 5.20, 5.02, 4.71, 4.13,
@@ -30,7 +30,7 @@ static vt::TubeProperties s_vowel_i(
     0.1690  // in m
 );
 
-static vt::TubeProperties s_vowel_u(
+static vt::TubePropertiesStatic s_vowel_u(
     {
         0.54, 0.61, 0.66, 0.75, 1.13, 1.99, 2.83, 2.90, 2.52, 2.40, 2.83,
         3.56, 3.99, 3.89, 3.50, 3.04, 2.64, 2.44, 2.31, 2.07, 1.80, 1.52,
@@ -40,7 +40,7 @@ static vt::TubeProperties s_vowel_u(
     0.1959  // in m
 );
 
-static vt::TubeProperties s_vowel_e(
+static vt::TubePropertiesStatic s_vowel_e(
     {
         0.29, 0.26, 0.30, 0.40, 0.55, 0.74, 0.99, 1.09, 0.90, 0.69, 0.77,
         1.31, 2.13, 2.74, 3.03, 3.23, 3.33, 3.27, 3.09, 2.84, 2.66, 2.46,
@@ -50,7 +50,7 @@ static vt::TubeProperties s_vowel_e(
     0.1698  // in m
 );
 
-static vt::TubeProperties s_vowel_o(
+static vt::TubePropertiesStatic s_vowel_o(
     {
         0.38, 0.45, 0.57, 0.77, 1.31, 1.92, 1.74, 1.11, 0.75, 0.59, 0.57,
         0.68, 0.73, 0.67, 0.58, 0.49, 0.44, 0.42, 0.49, 0.53, 0.38, 0.30,
@@ -60,7 +60,7 @@ static vt::TubeProperties s_vowel_o(
     0.1833  // in m
 );
 
-static vt::TubeProperties s_vowel_I(
+static vt::TubePropertiesStatic s_vowel_I(
     {
         0.28, 0.21, 0.21, 0.30, 0.47, 0.71, 1.12, 1.48, 1.35, 1.05, 0.92,
         0.92, 1.19, 1.94, 2.83, 3.31, 3.48, 3.60, 3.64, 3.49, 3.20, 2.90,

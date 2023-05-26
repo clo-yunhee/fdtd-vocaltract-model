@@ -1,13 +1,13 @@
 #include "butterworth.hh"
 
+#include <af/constants.h>
+
 #include <algorithm>
 #include <cmath>
 #include <iostream>
 
-#include "../constants.hh"
-
 using namespace audio;
-using namespace vt::constants;
+using namespace af;
 
 Butterworth::Butterworth() {}
 
@@ -35,16 +35,16 @@ bool Butterworth::coefficients(const FilterType filterType, const double fs,
                                const double _f1c, const double _f2c,
                                const uint32_t filterOrder) {
     // ** Pre-warping
-    double f1c = 2 * std::tan(pi * _f1c / fs);
-    double f2c = 2 * std::tan(pi * _f2c / fs);
+    double f1c = 2 * std::tan(Pi * _f1c / fs);
+    double f2c = 2 * std::tan(Pi * _f2c / fs);
 
     // ** Design basic S-plane poles-only analogue LP prototype
     std::vector<dcomplex> poles(2 * filterOrder);
 
     for (uint32_t k = 0; k < filterOrder; ++k) {
         const double arg = double(2 * k + 1) / double(2 * filterOrder);
-        const double real = -std::sin(arg * pi);
-        const double imag = std::cos(arg * pi);
+        const double real = -std::sin(arg * Pi);
+        const double imag = std::cos(arg * Pi);
         poles[2 * k].real(real);
         poles[2 * k].imag(imag);
         poles[2 * k + 1].real(real);

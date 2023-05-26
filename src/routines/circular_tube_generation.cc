@@ -12,8 +12,7 @@ vt::SimulationData vt::circularTubeGeneration(
     SimulationType simulationType, JunctionType junctionType, Vowel vowel,
     bool boundaryInterpolation, bool baffleSwitchFlag, bool pmlSwitch,
     uint32_t pmlLayer, MouthTermination rad, double ds) {
-    const double                 diameterMul = 1;
-    ArrayXX<GridCellTypeInplane> gridPlaneProp;
+    const double diameterMul = 1;
 
     // Define tube geometry
     TubeProperties tube = vt::areaFunction(simulationType, junctionType, vowel);
@@ -27,39 +26,41 @@ vt::SimulationData vt::circularTubeGeneration(
         (uint32_t)std::round(micXdistanceFromMouthEnd / ds);
 
     // Number of tube segments
-    const uint32_t numSections = length(tubeSectionArea_inm2);
+    const uint32_t numSections = tubeSectionArea_inm2.elements();
 
     // Calculate tube section diameters
-    const auto tubeSectionOriginalDiameter =
-        2 * sqrt(tubeSectionArea_inm2 / pi) * diameterMul;
-    ArrayX<uint32_t> tubeSectionDiameterCells =
-        round(tubeSectionOriginalDiameter / ds).cast<uint32_t>();
+    const array tubeSectionOriginalDiameter =
+        2 * sqrt(tubeSectionArea_inm2 / Pi) * diameterMul;
+    array tubeSectionDiameterCells =
+        round(tubeSectionOriginalDiameter / ds).as(u32);
 
     // Cross-sectional area at the tube start end
     // I didn't use "tubeSectionArea_inm2" directly because I wanted to use
     // the derived area by using the derived diameter.
     const double tubeStartArea =
-        pi * pow(tubeSectionOriginalDiameter(1) / 2, 2);
+        (Pi * pow(tubeSectionOriginalDiameter(0) / 2, 2)).scalar<double>();
 
     // Change the tubeSectionDiameterCells to 1 if it contains 0
-    tubeSectionDiameterCells =
-        (tubeSectionDiameterCells == 0).select(1, tubeSectionDiameterCells);
+    tubeSectionDiameterCells(tubeSectionDiameterCells == 0) = 1;
 
     // Choose the best possible odd number from the Diameter array
-    for (uint32_t diameterCounter = 1; diameterCounter <= numSections;
+    for (uint32_t diameterCounter = 0; diameterCounter < numSections;
          ++diameterCounter) {
         // Verify if the cellsPerDiameter is odd or not
-        if (tubeSectionDiameterCells(diameterCounter) % 2 == 0) {
+        if (allTrue<bool>(tubeSectionDiameterCells(diameterCounter) % 2 == 0)) {
             // Find the difference between the rounded and the actual
             // diameter value = Estimated diameter-Actual diameter
             const double diff =
-                tubeSectionDiameterCells(diameterCounter) -
-                (tubeSectionOriginalDiameter(diameterCounter) / ds);
+                (tubeSectionDiameterCells(diameterCounter) -
+                 (tubeSectionOriginalDiameter(diameterCounter) / ds))
+                    .scalar<double>();
 
             if (diff > 0) {
-                tubeSectionDiameterCells(diameterCounter) -= 1;
+                tubeSectionDiameterCells(diameterCounter) =
+                    tubeSectionDiameterCells(diameterCounter) - 1;
             } else {
-                tubeSectionDiameterCells(diameterCounter) += 1;
+                tubeSectionDiameterCells(diameterCounter) =
+                    tubeSectionDiameterCells(diameterCounter) + 1;
             }
         }
     }
@@ -78,8 +79,10 @@ vt::SimulationData vt::circularTubeGeneration(
     } else {
         domainX = totalTubeLengthInCells +
                   (1 + 1);  // +1 is excitation and +1 is dirichlet layer
-        domainY = tubeSectionDiameterCells.maxCoeff() + 2;  // +2 is tube walls
-        domainZ = tubeSectionDiameterCells.maxCoeff() + 2;  // +2 is tube walls
+        domainY =
+            max<uint32_t>(tubeSectionDiameterCells) + 2;  // +2 is tube walls
+        domainZ =
+            max<uint32_t>(tubeSectionDiameterCells) + 2;  // +2 is tube walls
     }
 
     // Derive frame size
@@ -106,11 +109,11 @@ vt::SimulationData vt::circularTubeGeneration(
     // PV_N(:,:,:, 3) = To store Vy
     // PV_N(:,:,:, 4) = To store Vz
     // PV_N(:,:,:, 5) = To store grid cell types
-    auto PV_N = zeros<Tensor4<double>>(frameY, frameX, frameZ, 5);
+    array PV_N = constant(0, frameY, frameX, frameZ, 5);
 
     // Define cell types and store it in PV_N(:,:,:, 5)
     // Declare all the cells as air by default
-    PV_N.chip(5, 3).setConstant(vt::cell_air);
+    PV_N(span, span, span, 4) = vt::cell_air;
 
     // Create the regular tube geometry
 
@@ -119,8 +122,8 @@ vt::SimulationData vt::circularTubeGeneration(
     // from the starting position towards the end position.
 
     // Find the center of the tube along the yz-plane
-    const uint32_t centerY = ceil(frameY / 2.0);
-    const uint32_t centerZ = ceil(frameZ / 2.0);
+    const uint32_t centerY = (uint32_t)ceil((frameY - 1) / 2.0);
+    const uint32_t centerZ = (uint32_t)ceil((frameZ - 1) / 2.0);
 
     // Find the starting and ending point of the tube.
     // 1 is: for starting point, dead layer and excitation
@@ -143,13 +146,14 @@ vt::SimulationData vt::circularTubeGeneration(
     tubeEnd.endZ = centerZ;
 
     // Store the cumulative length of each tube section
-    auto tubeCummSectionLength = zeros<ArrayXd>(numSections);
-    for (uint32_t sectionCount = 1; sectionCount <= numSections;
+    array tubeCummSectionLength = constant(0, 1, numSections);
+    for (uint32_t sectionCount = 0; sectionCount < numSections;
          ++sectionCount) {
-        tubeCummSectionLength(sectionCount) = tube.segmentLength * sectionCount;
+        tubeCummSectionLength(sectionCount) =
+            tube.segmentLength * (sectionCount + 1);
     }
 
-    Array2X<uint32_t> currTubeSectionDiameterCells_SegmentCounter;
+    array currTubeSectionDiameterCells_SegmentCounter;
     if (junctionType == JunctionType::Centric) {
         currTubeSectionDiameterCells_SegmentCounter =
             vt::centricCircularContourGeneration(
@@ -168,30 +172,15 @@ vt::SimulationData vt::circularTubeGeneration(
     // This can be done by checking the midpoint along y-axis
     double   vtMidlineLength = 0;
     uint32_t prevMidYPosition = 0;
-    uint32_t minAirYInCells;
-    uint32_t maxAirYInCells;
 
     for (uint32_t vtCrossSectionCounter = tubeStart.startX;
          vtCrossSectionCounter <= tubeEnd.endX; ++vtCrossSectionCounter) {
-        gridPlaneProp = vt::findCellTypes(PV_N, vtCrossSectionCounter);
-
-        // Find mid Y position
-        minAirYInCells = UINT32_MAX;
-        maxAirYInCells = 0;
-
-        for (uint32_t y = 1; y <= rows(gridPlaneProp); ++y) {
-            if (gridPlaneProp(y, tubeStart.startZ) ==
-                GridCellTypeInplane::inVTContour) {
-                if (y < minAirYInCells) {
-                    minAirYInCells = y;
-                }
-                if (y > maxAirYInCells) {
-                    maxAirYInCells = y;
-                }
-            }
-        }
-
-        const uint32_t currMidYPosition = (minAirYInCells + maxAirYInCells) / 2;
+        const array gridPlaneProp =
+            vt::findCellTypes(PV_N, vtCrossSectionCounter);
+        const array    airCells = where(gridPlaneProp(span, tubeStart.startZ) ==
+                                        (float)GridCellTypeInplane::inVTContour);
+        const uint32_t currMidYPosition =
+            ((min(airCells) + max(airCells)) / 2).scalar<uint32_t>();
 
         if (vtCrossSectionCounter == tubeStart.startX) {
             prevMidYPosition = currMidYPosition;
@@ -203,7 +192,8 @@ vt::SimulationData vt::circularTubeGeneration(
             prevMidYPosition = currMidYPosition;
         } else {
             const double yPosDifferenceLen =
-                fabs(currMidYPosition - prevMidYPosition) * ds;
+                std::abs((double)currMidYPosition - (double)prevMidYPosition) *
+                ds;
             vtMidlineLength +=
                 sqrt(ds * ds + yPosDifferenceLen * yPosDifferenceLen);
             prevMidYPosition = currMidYPosition;
@@ -222,20 +212,20 @@ vt::SimulationData vt::circularTubeGeneration(
     // Check the grid cell types for the yz-plane that exists besides
     // (left-side) the tube starting point
     const uint32_t xExcitationPos = tubeStart.startX - 1;
-    gridPlaneProp = vt::findCellTypes(PV_N, tubeStart.startX);
+    const array    gridPlaneProp = vt::findCellTypes(PV_N, tubeStart.startX);
 
     // Find the grid size and traverse through yz-plane to assign
     // cell_excitation
-    const auto gridSize = dimensions(PV_N);
+    const dim4 gridSize = PV_N.dims();
 
-    for (uint32_t yCount = 1; yCount <= gridSize[1]; ++yCount) {
-        for (uint32_t zCount = 1; zCount <= gridSize[3]; ++zCount) {
-            if (gridPlaneProp(yCount, zCount) ==
-                GridCellTypeInplane::inVTContour) {
-                PV_N(yCount, xExcitationPos, zCount, 5) = vt::cell_excitation;
-            } else if (gridPlaneProp(yCount, zCount) ==
-                       GridCellTypeInplane::onVTContour) {
-                PV_N(yCount, xExcitationPos, zCount, 5) = vt::cell_wall;
+    for (uint32_t yCount = 0; yCount < gridSize[0]; ++yCount) {
+        for (uint32_t zCount = 0; zCount < gridSize[2]; ++zCount) {
+            if (allTrue<bool>(gridPlaneProp(yCount, zCount) ==
+                              (float)GridCellTypeInplane::inVTContour)) {
+                PV_N(yCount, xExcitationPos, zCount, 4) = vt::cell_excitation;
+            } else if (allTrue<bool>(gridPlaneProp(yCount, zCount) ==
+                                     (float)GridCellTypeInplane::onVTContour)) {
+                PV_N(yCount, xExcitationPos, zCount, 4) = vt::cell_wall;
             }
         }
     }
@@ -243,18 +233,19 @@ vt::SimulationData vt::circularTubeGeneration(
     // Define no_Pressure cells [Dirichlet Boundary Condition]
     if (rad == MouthTermination::DirichletBoundary) {
         tubeEnd.endX = tubeStart.startX + totalTubeLengthInCells - 1;
-        gridPlaneProp = vt::findCellTypes(PV_N, tubeEnd.endX);
+        const array gridPlaneProp = vt::findCellTypes(PV_N, tubeEnd.endX);
 
         // Traverse through yz-plane to assign cell_noPressure
-        for (uint32_t yCount = 1; yCount <= gridSize[1]; ++yCount) {
-            for (uint32_t zCount = 1; zCount <= gridSize[3]; ++zCount) {
-                if (gridPlaneProp(yCount, zCount) ==
-                    GridCellTypeInplane::inVTContour) {
-                    PV_N(yCount, tubeEnd.endX + 1, zCount, 5) =
+        for (uint32_t yCount = 0; yCount < gridSize[0]; ++yCount) {
+            for (uint32_t zCount = 0; zCount < gridSize[2]; ++zCount) {
+                if (allTrue<bool>(gridPlaneProp(yCount, zCount) ==
+                                  (float)GridCellTypeInplane::inVTContour)) {
+                    PV_N(yCount, tubeEnd.endX + 1, zCount, 4) =
                         vt::cell_noPressure;
-                } else if (gridPlaneProp(yCount, zCount) ==
-                           GridCellTypeInplane::onVTContour) {
-                    PV_N(yCount, tubeEnd.endX + 1, zCount, 5) =
+                } else if (allTrue<bool>(
+                               gridPlaneProp(yCount, zCount) ==
+                               (float)GridCellTypeInplane::onVTContour)) {
+                    PV_N(yCount, tubeEnd.endX + 1, zCount, 4) =
                         vt::cell_noPressure;
                 }
             }
@@ -271,47 +262,31 @@ vt::SimulationData vt::circularTubeGeneration(
 
     // Determine the microphone/listener position near the mouth-end
     ListenerInfo listenerInfo;
-    listenerInfo.listenerX = tubeEnd.endX - micXdistanceInCellsFromMouthEnd;
-    listenerInfo.listenerZ = tubeEnd.endZ;
-    gridPlaneProp = vt::findCellTypes(PV_N, listenerInfo.listenerX);
-
-    // Find mid Y position
-    minAirYInCells = UINT32_MAX;
-    maxAirYInCells = 0;
-    for (uint32_t y = 1; y <= rows(gridPlaneProp); ++y) {
-        if (gridPlaneProp(y, tubeEnd.endZ) ==
-            GridCellTypeInplane::inVTContour) {
-            if (y < minAirYInCells) {
-                minAirYInCells = y;
-            }
-            if (y > maxAirYInCells) {
-                maxAirYInCells = y;
-            }
-        }
+    {
+        listenerInfo.listenerX = tubeEnd.endX - micXdistanceInCellsFromMouthEnd;
+        listenerInfo.listenerZ = tubeEnd.endZ;
+        const array gridPlaneProp =
+            vt::findCellTypes(PV_N, listenerInfo.listenerX);
+        const array airCells =
+            where(gridPlaneProp(span, listenerInfo.listenerZ) ==
+                  (float)GridCellTypeInplane::inVTContour);
+        const uint32_t yPosition =
+            ((min(airCells) + max(airCells)) / 2).scalar<uint32_t>();
+        listenerInfo.listenerY = yPosition;
     }
-    listenerInfo.listenerY = (minAirYInCells + maxAirYInCells) / 2;
 
     // Determine the source position near the glottal-end
     SourceInfo sourceInfo;
-    sourceInfo.sourceX = tubeStart.startX + 1;
-    sourceInfo.sourceZ = tubeStart.startZ;
-    gridPlaneProp = vt::findCellTypes(PV_N, sourceInfo.sourceX);
-
-    // Find mid Y position
-    minAirYInCells = UINT32_MAX;
-    maxAirYInCells = 0;
-    for (uint32_t y = 1; y <= rows(gridPlaneProp); ++y) {
-        if (gridPlaneProp(y, tubeStart.startZ) ==
-            GridCellTypeInplane::inVTContour) {
-            if (y < minAirYInCells) {
-                minAirYInCells = y;
-            }
-            if (y > maxAirYInCells) {
-                maxAirYInCells = y;
-            }
-        }
+    {
+        sourceInfo.sourceX = tubeStart.startX + 1;
+        sourceInfo.sourceZ = tubeStart.startZ;
+        const array gridPlaneProp = vt::findCellTypes(PV_N, sourceInfo.sourceX);
+        const array airCells = where(gridPlaneProp(span, sourceInfo.sourceZ) ==
+                                     (float)GridCellTypeInplane::inVTContour);
+        const uint32_t yPosition =
+            ((min(airCells) + max(airCells)) / 2).scalar<uint32_t>();
+        sourceInfo.sourceY = yPosition;
     }
-    sourceInfo.sourceY = (minAirYInCells + maxAirYInCells) / 2;
 
     SimulationData data;
     data.gridParams = std::move(simGridParams);

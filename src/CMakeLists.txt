@@ -41,7 +41,6 @@ add_executable(${_target}
     routines/impulse_signal.hh
     routines/tube_segment_connector.cc
     routines/tube_segment_connector.hh
-    eigen.hh
     main.cc
     talking_tube.cc
     types.hh
@@ -51,25 +50,9 @@ target_compile_features(${_target} PUBLIC cxx_std_20)
 set_target_properties(${_target} PROPERTIES CXX_EXTENSIONS OFF)
 
 target_link_libraries(${_target} PRIVATE
-    Eigen3::Eigen
+    ArrayFire::af
     SndFile::sndfile
     PNG::PNG
     Boost::headers
     colormap::colormap
 )
-
-target_compile_options(${_target} PRIVATE "${TORCH_CXX_FLAGS}")
-target_link_libraries(${_target} PRIVATE "${TORCH_LIBRARIES}")
-
-# The following code block is suggested to be used on Windows.
-# According to https://github.com/pytorch/pytorch/issues/25457,
-# the DLLs need to be copied to avoid memory errors.
-if (MSVC)
-    file(GLOB TORCH_DLLS "${TORCH_INSTALL_PREFIX}/lib/*.dll")
-    add_custom_command(TARGET ${_target}
-        POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        ${TORCH_DLLS}
-        $<TARGET_FILE_DIR:${_target}>
-    )
-endif()

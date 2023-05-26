@@ -2,15 +2,16 @@
 
 #include "butterworth.hh"
 
-std::vector<double> audio::generateFromPressure(
-    const Ref<const ArrayXd> Pr_Audio, const double srateBase,
-    const double srate, const uint32_t srateMul) {
-    std::vector<double> audioOutput(length(Pr_Audio));
+std::vector<double> audio::generateFromPressure(const array&   Pr_Audio,
+                                                const double   srateBase,
+                                                const double   srate,
+                                                const uint32_t srateMul) {
+    std::vector<double> audioOutput(Pr_Audio.elements());
 
     double maxPressure = std::numeric_limits<double>::lowest();
 
     for (uint32_t i = 0; i < audioOutput.size(); ++i) {
-        audioOutput[i] = Pr_Audio(i + 1);
+        audioOutput[i] = Pr_Audio(i).scalar<float>();
         if (std::abs(audioOutput[i]) > maxPressure) {
             maxPressure = std::abs(audioOutput[i]);
         }
